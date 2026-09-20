@@ -1,8 +1,8 @@
-// 俺専用ダッシュボード v1.14-github
+// 俺専用ダッシュボード v1.15-github
 // Remote main for Scriptable loader.
 // IMPORTANT: Script.complete() は loader 側で呼ぶ。
 
-const VERSION = "1.14-github";
+const VERSION = "1.15-github";
 
 const USER = globalThis.ORE_DASH_CONFIG || {};
 
@@ -14,7 +14,6 @@ const CFG = Object.assign({
   maxTasks:3,
   universityLookAheadDays:180,
   universityMaxItems:3,
-  lifestyleLookAheadDays:45,
   anniversaryMonth:null,
   anniversaryDay:null,
   refreshMinutes:15
@@ -37,23 +36,6 @@ const C = {
   orange:new Color("#EA580C"), red:new Color("#DC2626"),
   purple:new Color("#7C3AED"), gray:new Color("#94A3B8"),
   card:new Color("#FFFFFF",0.82), weakCard:new Color("#FFFFFF",0.64)
-};
-
-const LIFE_KEYS = USER.lifestyleKeywords || {};
-
-const LIFESTYLE = {
-  fishing:{
-    title:"釣り",icon:"fish.fill",color:C.blue,
-    keywords:LIFE_KEYS.fishing || ["釣り","釣行","アジング","サビキ","泳がせ","ジギング"]
-  },
-  garden:{
-    title:"菜園",icon:"leaf.fill",color:C.green,
-    keywords:LIFE_KEYS.garden || ["菜園","家庭菜園","水やり","追肥","収穫"]
-  },
-  workout:{
-    title:"筋トレ",icon:"dumbbell.fill",color:C.purple,
-    keywords:LIFE_KEYS.workout || ["筋トレ","トレーニング","ジム"]
-  }
 };
 
 const NEWS_CATEGORIES = [
@@ -301,6 +283,17 @@ function tideCompact(data){
   }).join(" ");
 }
 
+function tideHeader(data){
+  if(!data.ok) return TIDE.stationName+" 潮汐取得失敗";
+  const now=new Date();
+  const upcoming=data.events.filter(x=>x.date>=now).slice(0,2);
+  if(!upcoming.length) return TIDE.stationName+" 本日終了";
+  const firstTomorrow=dayStart(upcoming[0].date)>dayStart(now);
+  let out=TIDE.stationName+" "+(firstTomorrow?"明日 ":"")+"次 "+upcoming[0].kind+upcoming[0].time;
+  if(upcoming[1]) out+=" → "+upcoming[1].kind+upcoming[1].time;
+  return out;
+}
+
 async function getPosition(){
   try{
     Location.setAccuracyToThreeKilometers();
@@ -388,21 +381,6 @@ async function getUniversityItems(){
   return out;
 }
 
-async function getLifestyleSources(){
-  const r={calendarOK:false,reminderOK:false,calendarItems:[],reminderItems:[]};
-  const now=new Date(),end=addDays(now,CFG.lifestyleLookAheadDays);
-  try{r.calendarItems=await CalendarEvent.between(now,end);r.calendarOK=true;}catch(_){}
-  try{r.reminderItems=await Reminder.allIncomplete();r.reminderOK=true;}catch(_){}
-  return r;
-}
-
-function nextLifestyle(src,cat){
-  const a=[],now=new Date(),end=addDays(now,CFG.lifestyleLookAheadDays);
-  if(src.calendarOK)for(const e of src.calendarItems){const title=normalize(e.title),combined=title+" "+normalize(e.notes);if(any(combined,cat.keywords)||any(calName(e),cat.keywords))a.push({title,date:new Date(e.startDate)});}
-  if(src.reminderOK)for(const r of src.reminderItems){if(!r.dueDate)continue;const d=new Date(r.dueDate);if(d<dayStart(now)||d>end)continue;const title=normalize(r.title),combined=title+" "+normalize(r.notes);if(any(combined,cat.keywords)||any(calName(r),cat.keywords))a.push({title,date:d});}
-  a.sort((x,y)=>x.date-y.date);return a[0]||null;
-}
-
 function anniversary(){
   if(!CFG.anniversaryMonth || !CFG.anniversaryDay) return null;
   const n=new Date();let t=new Date(n.getFullYear(),CFG.anniversaryMonth-1,CFG.anniversaryDay);
@@ -412,8 +390,7 @@ function anniversary(){
 
 const fetchedAt=new Date();
 const position=await getPosition();
-const [W,eventsData,tasksData,universityData,lifestyleSources,newsData,tideData]=await Promise.all([getWeather(position),getEvents(),getTasks(),getUniversityItems(),getLifestyleSources(),getNews(),getTide()]);
-const life={sourcesOK:lifestyleSources.calendarOK||lifestyleSources.reminderOK,fishing:nextLifestyle(lifestyleSources,LIFESTYLE.fishing),garden:nextLifestyle(lifestyleSources,LIFESTYLE.garden),workout:nextLifestyle(lifestyleSources,LIFESTYLE.workout)};
+const [W,eventsData,tasksData,universityData,newsData,tideData]=await Promise.all([getWeather(position),getEvents(),getTasks(),getUniversityItems(),getNews(),getTide()]);
 const ann=anniversary();
 const [weatherName,weatherIcon]=weatherInfo(W.code);
 
@@ -436,6 +413,10 @@ if(W.ok){
   weatherBox.addSpacer(1);
   const weatherMeta=weatherBox.addStack();weatherMeta.centerAlignContent();
   t=weatherMeta.addText("↑"+W.max+"°  ↓"+W.min+"°  降水"+W.rain+"%");t.font=Font.systemFont(8);t.textColor=C.sub;
+  weatherBox.addSpacer(1);
+  const tideMeta=weatherBox.addStack();tideMeta.centerAlignContent();
+  icon(tideMeta,"fish.fill",tideData.ok?C.blue:C.gray,6);tideMeta.addSpacer(3);
+  t=tideMeta.addText(tideHeader(tideData));t.font=Font.systemFont(6);t.textColor=tideData.ok?C.blue:C.gray;t.lineLimit=1;t.minimumScaleFactor=0.72;
   weatherBox.addSpacer(1);
   const liveMeta=weatherBox.addStack();liveMeta.centerAlignContent();
   t=liveMeta.addText("●");t.font=Font.systemFont(6);t.textColor=C.green;liveMeta.addSpacer(3);
@@ -476,38 +457,18 @@ if(!universityData.items.length){t=uni.addText("検出イベントなし");t.fon
 else universityData.items.forEach((it,i)=>{const l=uni.addStack();l.centerAlignContent();let x=l.addText(it.kind);x.font=Font.boldSystemFont(8);x.textColor=it.color;l.addSpacer(4);x=l.addText(relativeDay(it.date));x.font=Font.boldSystemFont(9);x.textColor=it.color;l.addSpacer(4);x=l.addText(fmtDate(it.date));x.font=Font.systemFont(8);x.textColor=C.sub;l.addSpacer(4);x=l.addText(shorten(it.title,11));x.font=Font.systemFont(8);x.textColor=C.text;x.lineLimit=1;if(i<universityData.items.length-1)uni.addSpacer(3);});
 w.addSpacer(3);
 
-// ROW3 lifestyle
-const lifeCard=mkCard(w);lifeCard.setPadding(6,9,6,9);const lh=section(lifeCard,"leaf.fill","暮らし・趣味",C.green);lh.addSpacer();
-t=lh.addText(life.sourcesOK?"自動":"取得失敗");t.font=Font.systemFont(8);t.textColor=life.sourcesOK?C.green:C.red;lifeCard.addSpacer(4);
-const lr=lifeCard.addStack();lr.spacing=7;
-function lifeCol(cat,item,extra){
-  const c=lr.addStack();c.layoutVertically();c.size=new Size(105,38);
-  const h=c.addStack();h.centerAlignContent();icon(h,cat.icon,cat.color,10);h.addSpacer(4);let x=h.addText(cat.title);x.font=Font.boldSystemFont(9);x.textColor=C.text;c.addSpacer(3);
-  if(!life.sourcesOK){x=c.addText("取得失敗");x.font=Font.systemFont(8);x.textColor=C.red;}
-  else if(!item){x=c.addText("予定なし");x.font=Font.systemFont(8);x.textColor=C.sub;}
-  else{x=c.addText(relativeDay(item.date)+" "+fmtDate(item.date));x.font=Font.semiboldSystemFont(8);x.textColor=cat.color;x=c.addText(shorten(item.title,12));x.font=Font.systemFont(8);x.textColor=C.text;x.lineLimit=1;}
-  if(extra){
-    x=c.addText(extra);x.font=Font.systemFont(6);x.textColor=tideData && tideData.ok ? C.blue : C.gray;x.lineLimit=1;x.minimumScaleFactor=0.65;
-    if(cat===LIFESTYLE.fishing && tideData && tideData.ok){
-      x=c.addText(tideData.station+"・"+tideData.source);x.font=Font.systemFont(5);x.textColor=C.gray;x.lineLimit=1;
-    }
-  }
-}
-lifeCol(LIFESTYLE.fishing,life.fishing,tideCompact(tideData));lifeCol(LIFESTYLE.garden,life.garden);lifeCol(LIFESTYLE.workout,life.workout);
-w.addSpacer(3);
-
 // ROW4 full-width 3-category official news
 const newsCard=w.addStack();newsCard.layoutVertically();
 newsCard.backgroundColor=C.weakCard;newsCard.cornerRadius=12;
-newsCard.setPadding(5,9,5,9);
+newsCard.setPadding(8,10,8,10);
 
 let nh=newsCard.addStack();nh.centerAlignContent();
 icon(nh,"newspaper.fill",C.blue,10);nh.addSpacer(5);
-let nx=nh.addText("ニュース");nx.font=Font.boldSystemFont(10);nx.textColor=C.text;
+let nx=nh.addText("ニュース");nx.font=Font.boldSystemFont(11);nx.textColor=C.text;
 nh.addSpacer();
 nx=nh.addText(newsData.ok?"公式ソース":"取得失敗");
 nx.font=Font.systemFont(7);nx.textColor=newsData.ok?C.green:C.red;
-newsCard.addSpacer(3);
+newsCard.addSpacer(5);
 
 for(let i=0;i<newsData.categories.length;i++){
   const cat=newsData.categories[i];
@@ -515,13 +476,13 @@ for(let i=0;i<newsData.categories.length;i++){
   line.centerAlignContent();
 
   let badge=line.addText(cat.label);
-  badge.font=Font.boldSystemFont(8);
+  badge.font=Font.boldSystemFont(9);
   badge.textColor=cat.color;
   line.addSpacer(5);
 
   if(!cat.ok){
     let state=line.addText("取得失敗");
-    state.font=Font.systemFont(8);
+    state.font=Font.systemFont(9);
     state.textColor=C.red;
   }else if(!cat.item){
     let state=line.addText("新着なし");
@@ -529,20 +490,20 @@ for(let i=0;i<newsData.categories.length;i++){
     state.textColor=C.gray;
   }else{
     let src=line.addText(cat.item.source);
-    src.font=Font.semiboldSystemFont(7);
+    src.font=Font.semiboldSystemFont(8);
     src.textColor=C.sub;
     line.addSpacer(5);
 
     let title=line.addText(cat.item.title);
-    title.font=Font.systemFont(8);
+    title.font=Font.systemFont(9);
     title.textColor=C.text;
-    title.lineLimit=1;
-    title.minimumScaleFactor=0.72;
+    title.lineLimit=2;
+    title.minimumScaleFactor=0.78;
 
     if(cat.item.link) line.url=cat.item.link;
   }
 
-  if(i<newsData.categories.length-1) newsCard.addSpacer(2);
+  if(i<newsData.categories.length-1) newsCard.addSpacer(5);
 }
 
 // freshness/version moved into header to preserve bottom space
