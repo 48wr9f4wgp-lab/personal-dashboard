@@ -1,8 +1,8 @@
-// 俺専用ダッシュボード v1.15-github
+// 俺専用ダッシュボード v1.16-github
 // Remote main for Scriptable loader.
 // IMPORTANT: Script.complete() は loader 側で呼ぶ。
 
-const VERSION = "1.15-github";
+const VERSION = "1.16-github";
 
 const USER = globalThis.ORE_DASH_CONFIG || {};
 
@@ -38,38 +38,6 @@ const C = {
   card:new Color("#FFFFFF",0.82), weakCard:new Color("#FFFFFF",0.64)
 };
 
-const NEWS_CATEGORIES = [
-  {
-    key:"AI",
-    label:"AI",
-    color:C.purple,
-    maxAgeDays:30,
-    sources:[
-      {name:"OpenAI",url:"https://openai.com/news/rss.xml"},
-      {name:"DeepMind",url:"https://deepmind.google/blog/rss.xml"},
-      {name:"GitHub",url:"https://github.blog/ai-and-ml/feed/"}
-    ]
-  },
-  {
-    key:"CAR",
-    label:"車",
-    color:C.blue,
-    maxAgeDays:45,
-    sources:[
-      {name:"Toyota",url:"https://global.toyota/export/jp/allnews_rss.xml"}
-    ]
-  },
-  {
-    key:"MARKET",
-    label:"市場",
-    color:C.green,
-    maxAgeDays:45,
-    sources:[
-      {name:"FRB",url:"https://www.federalreserve.gov/feeds/press_monetary.xml"}
-    ]
-  }
-];
-
 const TIDE = {
   station:"G9",
   stationName:"石廊崎",
@@ -92,81 +60,6 @@ function realEventEnd(e){const d=new Date(e.endDate);if(e.isAllDay)d.setMillisec
 function calName(x){return x.calendar&&x.calendar.title?normalize(x.calendar.title):"";}
 function mkCard(p){const c=p.addStack();c.layoutVertically();c.backgroundColor=C.card;c.cornerRadius=14;c.setPadding(9,10,9,10);return c;}
 function section(p,symbol,title,color){const r=p.addStack();r.centerAlignContent();icon(r,symbol,color,11);r.addSpacer(5);const t=r.addText(title);t.font=Font.boldSystemFont(11);t.textColor=C.text;return r;}
-
-function decodeXML(v){
-  return normalize(v)
-    .replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g,"$1")
-    .replace(/&amp;/g,"&")
-    .replace(/&lt;/g,"<")
-    .replace(/&gt;/g,">")
-    .replace(/&quot;/g,'"')
-    .replace(/&#39;/g,"'");
-}
-function tagValue(block,tag){
-  const m=block.match(new RegExp("<"+tag+"(?:\\s[^>]*)?>([\\s\\S]*?)<\\/"+tag+">","i"));
-  return m?decodeXML(m[1]):"";
-}
-function rssItems(xml,source){
-  const blocks=xml.match(/<item\b[\s\S]*?<\/item>/gi)||[];
-  return blocks.map(b=>{
-    const title=tagValue(b,"title");
-    const link=tagValue(b,"link") || ((b.match(/<link[^>]*href=["']([^"']+)["']/i)||[])[1]||"");
-    const rawDate=tagValue(b,"pubDate")||tagValue(b,"published")||tagValue(b,"updated");
-    const date=rawDate?new Date(rawDate):null;
-    return {source,title,link,date:(date && !isNaN(date.getTime()))?date:null};
-  }).filter(x=>x.title);
-}
-async function fetchFeedSource(src){
-  try{
-    const req=new Request(src.url);req.timeoutInterval=10;
-    const xml=await req.loadString();
-    const items=rssItems(xml,src.name);
-    return {ok:true,items};
-  }catch(_){
-    return {ok:false,items:[]};
-  }
-}
-
-async function getNews(){
-  const now=Date.now();
-  const categories=[];
-
-  for(const cat of NEWS_CATEGORIES){
-    let sourceSuccess=false;
-    let pool=[];
-
-    for(const src of cat.sources){
-      const r=await fetchFeedSource(src);
-      if(r.ok){
-        sourceSuccess=true;
-        pool.push(...r.items);
-      }
-    }
-
-    const freshMs=cat.maxAgeDays*86400000;
-    const fresh=pool
-      .filter(x=>!x.date || (now-x.date.getTime())<=freshMs)
-      .sort((a,b)=>{
-        if(a.date && b.date) return b.date-a.date;
-        if(a.date) return -1;
-        if(b.date) return 1;
-        return 0;
-      });
-
-    categories.push({
-      key:cat.key,
-      label:cat.label,
-      color:cat.color,
-      ok:sourceSuccess,
-      item:fresh[0]||null
-    });
-  }
-
-  return {
-    ok:categories.some(x=>x.ok),
-    categories
-  };
-}
 
 function htmlText(v){
   return String(v||"")
@@ -381,6 +274,108 @@ async function getUniversityItems(){
   return out;
 }
 
+
+function upcomingPriority(item){
+  if(item.kind==="期限") return 0;
+  if(item.source==="家族") return 1;
+  if(item.source==="リマインダー") return 2;
+  if(item.source==="放送大学") return 3;
+  return 4;
+}
+
+async function getUpcoming7(universityItems,ann){
+  const now=new Date();
+  const start=addDays(dayStart(now),1);
+  const end=addDays(start,7);
+  const out=[];
+
+  try{
+    const es=await CalendarEvent.between(start,end);
+    for(const e of es){
+      const d=new Date(e.startDate);
+      if(d<start || d>=end) continue;
+      const title=normalize(e.title);
+      const combined=title+" "+normalize(e.notes);
+      if(isUniversity(combined,calName(e))) continue;
+      out.push({
+        title,
+        date:d,
+        allDay:e.isAllDay,
+        source:"予定",
+        kind:"予定",
+        color:C.blue
+      });
+    }
+  }catch(_){}
+
+  try{
+    const rs=await Reminder.allIncomplete();
+    for(const r of rs){
+      if(!r.dueDate) continue;
+      const d=new Date(r.dueDate);
+      if(d<start || d>=end) continue;
+      const title=normalize(r.title);
+      const combined=title+" "+normalize(r.notes);
+      if(isUniversity(combined,calName(r))) continue;
+      out.push({
+        title,
+        date:d,
+        allDay:!r.dueDateIncludesTime,
+        source:"リマインダー",
+        kind:"予定",
+        color:C.green
+      });
+    }
+  }catch(_){}
+
+  if(ann && ann.date>=start && ann.date<end){
+    out.push({
+      title:"結婚記念日",
+      date:ann.date,
+      allDay:true,
+      source:"家族",
+      kind:"予定",
+      color:C.orange
+    });
+  }
+
+  for(const it of universityItems||[]){
+    if(it.date>=start && it.date<end){
+      out.push({
+        title:it.title,
+        date:new Date(it.date),
+        allDay:true,
+        source:"放送大学",
+        kind:it.kind,
+        color:it.color
+      });
+    }
+  }
+
+  const seen=new Set();
+  return out
+    .sort((a,b)=>{
+      const da=dayStart(a.date)-dayStart(b.date);
+      if(da!==0) return da;
+      const p=upcomingPriority(a)-upcomingPriority(b);
+      if(p!==0) return p;
+      return a.date-b.date;
+    })
+    .filter(x=>{
+      const k=normalize(x.title)+"|"+dayStart(x.date).getTime();
+      if(seen.has(k)) return false;
+      seen.add(k);
+      return true;
+    })
+    .slice(0,5);
+}
+
+function upcomingDayLabel(d){
+  const n=daysBetween(new Date(),d);
+  if(n===1) return "明日";
+  return fmtDate(d);
+}
+
 function anniversary(){
   if(!CFG.anniversaryMonth || !CFG.anniversaryDay) return null;
   const n=new Date();let t=new Date(n.getFullYear(),CFG.anniversaryMonth-1,CFG.anniversaryDay);
@@ -390,8 +385,9 @@ function anniversary(){
 
 const fetchedAt=new Date();
 const position=await getPosition();
-const [W,eventsData,tasksData,universityData,newsData,tideData]=await Promise.all([getWeather(position),getEvents(),getTasks(),getUniversityItems(),getNews(),getTide()]);
+const [W,eventsData,tasksData,universityData,tideData]=await Promise.all([getWeather(position),getEvents(),getTasks(),getUniversityItems(),getTide()]);
 const ann=anniversary();
+const upcoming7=await getUpcoming7(universityData.items,ann);
 const [weatherName,weatherIcon]=weatherInfo(W.code);
 
 const w=new ListWidget();
@@ -457,53 +453,51 @@ if(!universityData.items.length){t=uni.addText("検出イベントなし");t.fon
 else universityData.items.forEach((it,i)=>{const l=uni.addStack();l.centerAlignContent();let x=l.addText(it.kind);x.font=Font.boldSystemFont(8);x.textColor=it.color;l.addSpacer(4);x=l.addText(relativeDay(it.date));x.font=Font.boldSystemFont(9);x.textColor=it.color;l.addSpacer(4);x=l.addText(fmtDate(it.date));x.font=Font.systemFont(8);x.textColor=C.sub;l.addSpacer(4);x=l.addText(shorten(it.title,11));x.font=Font.systemFont(8);x.textColor=C.text;x.lineLimit=1;if(i<universityData.items.length-1)uni.addSpacer(3);});
 w.addSpacer(3);
 
-// ROW4 full-width 3-category official news
-const newsCard=w.addStack();newsCard.layoutVertically();
-newsCard.backgroundColor=C.weakCard;newsCard.cornerRadius=12;
-newsCard.setPadding(8,10,8,10);
+// ROW4 next 7 days
+const futureCard=w.addStack();futureCard.layoutVertically();
+futureCard.backgroundColor=C.weakCard;futureCard.cornerRadius=12;
+futureCard.setPadding(8,10,8,10);
 
-let nh=newsCard.addStack();nh.centerAlignContent();
-icon(nh,"newspaper.fill",C.blue,10);nh.addSpacer(5);
-let nx=nh.addText("ニュース");nx.font=Font.boldSystemFont(11);nx.textColor=C.text;
-nh.addSpacer();
-nx=nh.addText(newsData.ok?"公式ソース":"取得失敗");
-nx.font=Font.systemFont(7);nx.textColor=newsData.ok?C.green:C.red;
-newsCard.addSpacer(5);
+let fh=futureCard.addStack();fh.centerAlignContent();
+icon(fh,"calendar.badge.clock",C.blue,11);fh.addSpacer(5);
+let fx=fh.addText("この先7日");fx.font=Font.boldSystemFont(11);fx.textColor=C.text;
+fh.addSpacer();
+fx=fh.addText(upcoming7.length?upcoming7.length+"件":"予定なし");
+fx.font=Font.systemFont(7);fx.textColor=upcoming7.length?C.green:C.gray;
+futureCard.addSpacer(5);
 
-for(let i=0;i<newsData.categories.length;i++){
-  const cat=newsData.categories[i];
-  const line=newsCard.addStack();
-  line.centerAlignContent();
+if(!upcoming7.length){
+  fx=futureCard.addText("重要な予定はありません");
+  fx.font=Font.systemFont(9);fx.textColor=C.sub;
+}else{
+  upcoming7.forEach((it,i)=>{
+    const line=futureCard.addStack();line.centerAlignContent();
 
-  let badge=line.addText(cat.label);
-  badge.font=Font.boldSystemFont(9);
-  badge.textColor=cat.color;
-  line.addSpacer(5);
+    let d=line.addText(upcomingDayLabel(it.date));
+    d.font=Font.boldSystemFont(8);
+    d.textColor=it.color||C.blue;
+    line.addSpacer(6);
 
-  if(!cat.ok){
-    let state=line.addText("取得失敗");
-    state.font=Font.systemFont(9);
-    state.textColor=C.red;
-  }else if(!cat.item){
-    let state=line.addText("新着なし");
-    state.font=Font.systemFont(8);
-    state.textColor=C.gray;
-  }else{
-    let src=line.addText(cat.item.source);
-    src.font=Font.semiboldSystemFont(8);
+    let src=line.addText(it.source);
+    src.font=Font.semiboldSystemFont(7);
     src.textColor=C.sub;
-    line.addSpacer(5);
+    line.addSpacer(6);
 
-    let title=line.addText(cat.item.title);
+    let title=line.addText(it.title);
     title.font=Font.systemFont(9);
     title.textColor=C.text;
-    title.lineLimit=2;
+    title.lineLimit=1;
     title.minimumScaleFactor=0.78;
 
-    if(cat.item.link) line.url=cat.item.link;
-  }
+    if(!it.allDay){
+      line.addSpacer(5);
+      let tm=line.addText(fmtTime(it.date,false));
+      tm.font=Font.systemFont(7);
+      tm.textColor=C.gray;
+    }
 
-  if(i<newsData.categories.length-1) newsCard.addSpacer(5);
+    if(i<upcoming7.length-1) futureCard.addSpacer(5);
+  });
 }
 
 // freshness/version moved into header to preserve bottom space
