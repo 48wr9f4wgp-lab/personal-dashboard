@@ -1,8 +1,8 @@
-// 俺専用ダッシュボード v1.5-github
+// 俺専用ダッシュボード v1.12-github
 // Remote main for Scriptable loader.
 // IMPORTANT: Script.complete() は loader 側で呼ぶ。
 
-const VERSION = "1.11-github";
+const VERSION = "1.12-github";
 
 const USER = globalThis.ORE_DASH_CONFIG || {};
 
@@ -223,41 +223,56 @@ function tidePairs(cells,startIndex,endIndex){
   return out;
 }
 
+function tideDateKey(d){
+  return d.getFullYear()+"/"+String(d.getMonth()+1).padStart(2,"0")+"/"+String(d.getDate()).padStart(2,"0");
+}
+
+function tideEventDate(base,time){
+  const p=time.split(":").map(Number);
+  return new Date(base.getFullYear(),base.getMonth(),base.getDate(),p[0],p[1],0,0);
+}
+
 async function getTide(){
   try{
     const now=new Date();
-    const y=now.getFullYear();
-    const m=now.getMonth()+1;
-    const d=now.getDate();
-    const mm=String(m).padStart(2,"0");
-    const dd=String(d).padStart(2,"0");
-    const dateKey=y+"/"+mm+"/"+dd;
+    const tomorrow=addDays(dayStart(now),1);
+
+    const y1=now.getFullYear(),m1=String(now.getMonth()+1).padStart(2,"0"),d1=String(now.getDate()).padStart(2,"0");
+    const y2=tomorrow.getFullYear(),m2=String(tomorrow.getMonth()+1).padStart(2,"0"),d2=String(tomorrow.getDate()).padStart(2,"0");
 
     const url=
       "https://www.data.jma.go.jp/kaiyou/db/tide/suisan/suisan.php"+
       "?LV=DL&S_HILO=on"+
       "&stn="+encodeURIComponent(TIDE.station)+
-      "&ys="+y+"&ms="+mm+"&ds="+dd+
-      "&ye="+y+"&me="+mm+"&de="+dd;
+      "&ys="+y1+"&ms="+m1+"&ds="+d1+
+      "&ye="+y2+"&me="+m2+"&de="+d2;
 
     const req=new Request(url);
     req.timeoutInterval=12;
     const html=await req.loadString();
-    const cells=tideRowCells(html,dateKey);
 
-    if(!cells || cells.length<12) throw new Error("潮位表の当日行を解析できません");
+    const days=[dayStart(now),tomorrow];
+    const events=[];
 
-    const highs=tidePairs(cells,2,9);
-    const lows=tidePairs(cells,10,17);
+    for(const base of days){
+      const cells=tideRowCells(html,tideDateKey(base));
+      if(!cells || cells.length<12) continue;
 
-    if(!highs.length && !lows.length) throw new Error("満干潮データなし");
+      const highs=tidePairs(cells,2,9);
+      const lows=tidePairs(cells,10,17);
+
+      for(const x of highs) events.push({kind:"満",time:x.time,level:x.level,date:tideEventDate(base,x.time)});
+      for(const x of lows) events.push({kind:"干",time:x.time,level:x.level,date:tideEventDate(base,x.time)});
+    }
+
+    events.sort((a,b)=>a.date-b.date);
+    if(!events.length) throw new Error("満干潮データなし");
 
     return {
       ok:true,
       station:TIDE.stationName,
       source:TIDE.sourceLabel,
-      highs,
-      lows,
+      events,
       url
     };
   }catch(e){
@@ -265,8 +280,7 @@ async function getTide(){
       ok:false,
       station:TIDE.stationName,
       source:TIDE.sourceLabel,
-      highs:[],
-      lows:[],
+      events:[],
       error:String(e)
     };
   }
@@ -275,13 +289,15 @@ async function getTide(){
 function tideCompact(data){
   if(!data.ok) return "潮汐 取得失敗";
 
-  const seq=[];
-  if(data.highs[0]) seq.push("満"+data.highs[0].time);
-  if(data.lows[0]) seq.push("干"+data.lows[0].time);
-  if(data.highs[1]) seq.push("満"+data.highs[1].time);
-  if(data.lows[1]) seq.push("干"+data.lows[1].time);
+  const now=new Date();
+  const upcoming=data.events.filter(x=>x.date>=now).slice(0,2);
+  if(!upcoming.length) return "本日の潮変化終了";
 
-  return seq.length ? seq.join(" ") : "潮汐 データなし";
+  return upcoming.map((x,i)=>{
+    const tomorrow=dayStart(x.date)>dayStart(now);
+    const prefix=i===0?"次 ":"→ ";
+    return prefix+(tomorrow?"明日 ":"")+x.kind+x.time;
+  }).join(" ");
 }
 
 async function getPosition(){
