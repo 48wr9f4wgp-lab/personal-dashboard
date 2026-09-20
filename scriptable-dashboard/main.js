@@ -1,8 +1,8 @@
-// 俺専用ダッシュボード v1.17-github
+// 俺専用ダッシュボード v1.18-github
 // Remote main for Scriptable loader.
 // IMPORTANT: Script.complete() は loader 側で呼ぶ。
 
-const VERSION = "1.17-github";
+const VERSION = "1.18-github";
 
 const USER = globalThis.ORE_DASH_CONFIG || {};
 
@@ -220,7 +220,12 @@ function weatherInfo(code){
 async function getEvents(){
   try{
     const now=new Date();const list=await CalendarEvent.today();
-    const items=list.filter(e=>e.isAllDay||e.endDate>now).sort((a,b)=>{if(a.isAllDay&&!b.isAllDay)return -1;if(!a.isAllDay&&b.isAllDay)return 1;return a.startDate-b.startDate;}).slice(0,CFG.maxEvents);
+    const items=list.filter(e=>isAllDayLikeEvent(e)||e.endDate>now).sort((a,b)=>{
+      const aa=isAllDayLikeEvent(a),bb=isAllDayLikeEvent(b);
+      if(aa&&!bb)return -1;
+      if(!aa&&bb)return 1;
+      return a.startDate-b.startDate;
+    }).slice(0,CFG.maxEvents);
     return {ok:true,items};
   }catch(_){return {ok:false,items:[]};}
 }
@@ -231,6 +236,28 @@ async function getTasks(){
 }
 
 function isUniversity(text,calendarTitle){return any(text,UNIVERSITY_KEYWORDS)||any(calendarTitle,UNIVERSITY_KEYWORDS);}
+
+function mergeUniversityByDayKind(items){
+  const groups=new Map();
+
+  for(const it of items){
+    const key=dayStart(it.date).getTime()+"|"+it.kind;
+    if(!groups.has(key)){
+      groups.set(key,{...it,count:1});
+    }else{
+      const g=groups.get(key);
+      g.count+=1;
+    }
+  }
+
+  return Array.from(groups.values()).map(g=>({
+    title:g.count>1 ? g.count+"件の"+g.kind : g.title,
+    date:g.date,
+    kind:g.kind,
+    color:g.color,
+    count:g.count
+  }));
+}
 
 async function getUniversityItems(){
   const out={reminderOK:false,calendarOK:false,items:[]};
@@ -270,7 +297,19 @@ async function getUniversityItems(){
     }
   }catch(_){}
   const seen=new Set();
-  out.items=out.items.sort((a,b)=>a.date-b.date).filter(x=>{const k=x.title+"|"+x.kind+"|"+dayStart(x.date).getTime();if(seen.has(k))return false;seen.add(k);return true;}).slice(0,CFG.universityMaxItems);
+  const exact=out.items
+    .sort((a,b)=>a.date-b.date)
+    .filter(x=>{
+      const k=normalize(x.title).toLowerCase()+"|"+x.kind+"|"+dayStart(x.date).getTime();
+      if(seen.has(k)) return false;
+      seen.add(k);
+      return true;
+    });
+
+  out.items=mergeUniversityByDayKind(exact)
+    .sort((a,b)=>a.date-b.date)
+    .slice(0,CFG.universityMaxItems);
+
   return out;
 }
 
@@ -278,6 +317,17 @@ async function getUniversityItems(){
 function isHolidayCalendarTitle(title){
   const t=normalize(title).toLowerCase();
   return t.includes("祝日") || t.includes("holiday");
+}
+
+function isAllDayLikeEvent(e){
+  if(e.isAllDay) return true;
+
+  const start=new Date(e.startDate);
+  const end=new Date(e.endDate);
+  const midnight=start.getHours()===0 && start.getMinutes()===0;
+  const duration=end-start;
+
+  return midnight && duration>=23*60*60*1000 && duration<=25*60*60*1000;
 }
 
 function upcomingPriority(item){
@@ -313,7 +363,7 @@ async function getUpcoming7(universityItems,ann){
       out.push({
         title,
         date:d,
-        allDay:e.isAllDay,
+        allDay:isAllDayLikeEvent(e),
         source:"予定",
         kind:"予定",
         color:C.blue
@@ -442,7 +492,7 @@ const row1=w.addStack();row1.spacing=8;
 const eventCard=mkCard(row1);eventCard.size=new Size(178,80);section(eventCard,"calendar","今日の予定",C.blue);eventCard.addSpacer(5);
 if(!eventsData.ok){t=eventCard.addText("取得失敗");t.font=Font.systemFont(9);t.textColor=C.red;}
 else if(!eventsData.items.length){t=eventCard.addText("この後の予定なし");t.font=Font.systemFont(9);t.textColor=C.sub;}
-else eventsData.items.forEach((e,i)=>{const l=eventCard.addStack();l.centerAlignContent();let x=l.addText(fmtTime(e.startDate,e.isAllDay));x.font=Font.semiboldSystemFont(9);x.textColor=C.blue;l.addSpacer(5);x=l.addText(shorten(e.title,18));x.font=Font.systemFont(9);x.textColor=C.text;x.lineLimit=1;if(i<eventsData.items.length-1)eventCard.addSpacer(3);});
+else eventsData.items.forEach((e,i)=>{const l=eventCard.addStack();l.centerAlignContent();let x=l.addText(fmtTime(e.startDate,isAllDayLikeEvent(e)));x.font=Font.semiboldSystemFont(9);x.textColor=C.blue;l.addSpacer(5);x=l.addText(shorten(e.title,18));x.font=Font.systemFont(9);x.textColor=C.text;x.lineLimit=1;if(i<eventsData.items.length-1)eventCard.addSpacer(3);});
 
 const taskCard=mkCard(row1);taskCard.size=new Size(151,80);section(taskCard,"checkmark.circle.fill","やること",C.green);taskCard.addSpacer(5);
 if(!tasksData.ok){t=taskCard.addText("取得失敗");t.font=Font.systemFont(9);t.textColor=C.red;}
