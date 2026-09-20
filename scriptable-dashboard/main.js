@@ -1,8 +1,8 @@
-// 俺専用ダッシュボード v1.13-github
+// 俺専用ダッシュボード v1.14-github
 // Remote main for Scriptable loader.
 // IMPORTANT: Script.complete() は loader 側で呼ぶ。
 
-const VERSION = "1.13-github";
+const VERSION = "1.14-github";
 
 const USER = globalThis.ORE_DASH_CONFIG || {};
 
@@ -94,78 +94,6 @@ const TIDE = {
   sourceLabel:"気象庁予測"
 };
 
-
-const ASSET_KEY="ore-dashboard-assets-v1";
-
-function parseAssetNumber(v){
-  if(v===null||v===undefined||v==="") return null;
-  const n=Number(String(v).replace(/,/g,"").trim());
-  return Number.isFinite(n)?n:null;
-}
-
-function loadAssets(){
-  try{
-    if(!Keychain.contains(ASSET_KEY)) return {configured:false};
-    const j=JSON.parse(Keychain.get(ASSET_KEY));
-    const total=parseAssetNumber(j.total);
-    const debt=parseAssetNumber(j.debt);
-    const updatedAt=j.updatedAt?new Date(j.updatedAt):null;
-    if(total===null) return {configured:false};
-    return {
-      configured:true,
-      total,
-      debt:debt===null?0:debt,
-      net:total-(debt===null?0:debt),
-      updatedAt:(updatedAt && !isNaN(updatedAt.getTime()))?updatedAt:null
-    };
-  }catch(_){
-    return {configured:false};
-  }
-}
-
-function fmtMan(v){
-  if(v===null||v===undefined||!Number.isFinite(v)) return "—";
-  const sign=v<0?"-":"";
-  const a=Math.abs(v);
-  if(a>=10000){
-    const oku=a/10000;
-    return sign+(Number.isInteger(oku)?oku.toFixed(0):oku.toFixed(1))+"億";
-  }
-  return sign+Math.round(a).toLocaleString("ja-JP")+"万";
-}
-
-async function setupAssets(existing){
-  const a=new Alert();
-  a.title="資産を端末内に保存";
-  a.message="値はiPhoneのKeychainだけに保存され、GitHubへは送信しません。単位は万円。";
-  a.addTextField("総資産（万円）",existing&&existing.configured?String(existing.total):"");
-  a.addTextField("負債（万円）",existing&&existing.configured?String(existing.debt):"");
-  a.addAction("保存");
-  a.addCancelAction("キャンセル");
-  const r=await a.presentAlert();
-  if(r!==0) return existing||{configured:false};
-
-  const total=parseAssetNumber(a.textFieldValue(0));
-  const debt=parseAssetNumber(a.textFieldValue(1));
-  if(total===null) return existing||{configured:false};
-
-  const payload={
-    total,
-    debt:debt===null?0:debt,
-    updatedAt:new Date().toISOString()
-  };
-  try{Keychain.set(ASSET_KEY,JSON.stringify(payload));}catch(_){}
-  return loadAssets();
-}
-
-function assetSetupURL(){
-  try{
-    const base=URLScheme.forRunningScript();
-    return base+(base.includes("?")?"&":"?")+"setupAssets=1";
-  }catch(_){
-    return null;
-  }
-}
 
 function icon(stack,name,color,size=12){const sf=SFSymbol.named(name);sf.applyFont(Font.systemFont(size));const i=stack.addImage(sf.image);i.imageSize=new Size(size,size);i.tintColor=color;return i;}
 function normalize(v){return v?String(v).replace(/\s+/g," ").trim():"";}
@@ -483,10 +411,6 @@ function anniversary(){
 }
 
 const fetchedAt=new Date();
-let assetData=loadAssets();
-if(!config.runsInWidget && (!assetData.configured || (args.queryParameters&&args.queryParameters.setupAssets==="1"))){
-  assetData=await setupAssets(assetData);
-}
 const position=await getPosition();
 const [W,eventsData,tasksData,universityData,lifestyleSources,newsData,tideData]=await Promise.all([getWeather(position),getEvents(),getTasks(),getUniversityItems(),getLifestyleSources(),getNews(),getTide()]);
 const life={sourcesOK:lifestyleSources.calendarOK||lifestyleSources.reminderOK,fishing:nextLifestyle(lifestyleSources,LIFESTYLE.fishing),garden:nextLifestyle(lifestyleSources,LIFESTYLE.garden),workout:nextLifestyle(lifestyleSources,LIFESTYLE.workout)};
@@ -572,74 +496,53 @@ function lifeCol(cat,item,extra){
 lifeCol(LIFESTYLE.fishing,life.fishing,tideCompact(tideData));lifeCol(LIFESTYLE.garden,life.garden);lifeCol(LIFESTYLE.workout,life.workout);
 w.addSpacer(3);
 
-// ROW4 asset + 3-category official news
-const row4=w.addStack();row4.spacing=7;
-
-const assetCard=row4.addStack();assetCard.layoutVertically();
-assetCard.backgroundColor=C.weakCard;assetCard.cornerRadius=12;
-assetCard.setPadding(3,7,3,7);assetCard.size=new Size(92,44);
-const setupURL=assetSetupURL();if(setupURL)assetCard.url=setupURL;
-let ah=assetCard.addStack();ah.centerAlignContent();
-icon(ah,"chart.line.uptrend.xyaxis",C.green,9);ah.addSpacer(4);
-let ax=ah.addText("資産");ax.font=Font.boldSystemFont(9);ax.textColor=C.text;
-ah.addSpacer();
-ax=ah.addText(assetData.configured?"端末内":"設定");
-ax.font=Font.systemFont(6);ax.textColor=assetData.configured?C.green:C.orange;
-assetCard.addSpacer(2);
-if(assetData.configured){
-  ax=assetCard.addText("総 "+fmtMan(assetData.total));ax.font=Font.semiboldSystemFont(7);ax.textColor=C.text;ax.lineLimit=1;
-  ax=assetCard.addText("純 "+fmtMan(assetData.net));ax.font=Font.systemFont(7);ax.textColor=assetData.net>=0?C.green:C.red;ax.lineLimit=1;
-}else{
-  ax=assetCard.addText("タップで設定");ax.font=Font.systemFont(7);ax.textColor=C.gray;
-  ax=assetCard.addText("GitHub保存なし");ax.font=Font.systemFont(5);ax.textColor=C.gray;
-}
-
-const newsCard=row4.addStack();newsCard.layoutVertically();
+// ROW4 full-width 3-category official news
+const newsCard=w.addStack();newsCard.layoutVertically();
 newsCard.backgroundColor=C.weakCard;newsCard.cornerRadius=12;
-newsCard.setPadding(3,8,3,8);newsCard.size=new Size(236,44);
+newsCard.setPadding(5,9,5,9);
 
 let nh=newsCard.addStack();nh.centerAlignContent();
 icon(nh,"newspaper.fill",C.blue,10);nh.addSpacer(5);
-let nx=nh.addText("ニュース");nx.font=Font.boldSystemFont(9);nx.textColor=C.text;
+let nx=nh.addText("ニュース");nx.font=Font.boldSystemFont(10);nx.textColor=C.text;
 nh.addSpacer();
 nx=nh.addText(newsData.ok?"公式ソース":"取得失敗");
 nx.font=Font.systemFont(7);nx.textColor=newsData.ok?C.green:C.red;
-newsCard.addSpacer(1);
+newsCard.addSpacer(3);
 
 for(let i=0;i<newsData.categories.length;i++){
   const cat=newsData.categories[i];
   const line=newsCard.addStack();
-  line.topAlignContent();
+  line.centerAlignContent();
 
   let badge=line.addText(cat.label);
-  badge.font=Font.boldSystemFont(7);
+  badge.font=Font.boldSystemFont(8);
   badge.textColor=cat.color;
-  line.addSpacer(4);
+  line.addSpacer(5);
 
   if(!cat.ok){
     let state=line.addText("取得失敗");
-    state.font=Font.systemFont(7);
+    state.font=Font.systemFont(8);
     state.textColor=C.red;
   }else if(!cat.item){
     let state=line.addText("新着なし");
-    state.font=Font.systemFont(7);
+    state.font=Font.systemFont(8);
     state.textColor=C.gray;
   }else{
     let src=line.addText(cat.item.source);
-    src.font=Font.semiboldSystemFont(6);
+    src.font=Font.semiboldSystemFont(7);
     src.textColor=C.sub;
-    line.addSpacer(4);
+    line.addSpacer(5);
 
     let title=line.addText(cat.item.title);
-    title.font=Font.systemFont(7);
+    title.font=Font.systemFont(8);
     title.textColor=C.text;
     title.lineLimit=1;
-    title.minimumScaleFactor=0.70;
+    title.minimumScaleFactor=0.72;
 
     if(cat.item.link) line.url=cat.item.link;
   }
 
-  if(i<newsData.categories.length-1) newsCard.addSpacer(1);
+  if(i<newsData.categories.length-1) newsCard.addSpacer(2);
 }
 
 // freshness/version moved into header to preserve bottom space
