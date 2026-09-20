@@ -1,8 +1,8 @@
-// 俺専用ダッシュボード v1.12-github
+// 俺専用ダッシュボード v1.13-github
 // Remote main for Scriptable loader.
 // IMPORTANT: Script.complete() は loader 側で呼ぶ。
 
-const VERSION = "1.12-github";
+const VERSION = "1.13-github";
 
 const USER = globalThis.ORE_DASH_CONFIG || {};
 
@@ -93,6 +93,79 @@ const TIDE = {
   stationName:"石廊崎",
   sourceLabel:"気象庁予測"
 };
+
+
+const ASSET_KEY="ore-dashboard-assets-v1";
+
+function parseAssetNumber(v){
+  if(v===null||v===undefined||v==="") return null;
+  const n=Number(String(v).replace(/,/g,"").trim());
+  return Number.isFinite(n)?n:null;
+}
+
+function loadAssets(){
+  try{
+    if(!Keychain.contains(ASSET_KEY)) return {configured:false};
+    const j=JSON.parse(Keychain.get(ASSET_KEY));
+    const total=parseAssetNumber(j.total);
+    const debt=parseAssetNumber(j.debt);
+    const updatedAt=j.updatedAt?new Date(j.updatedAt):null;
+    if(total===null) return {configured:false};
+    return {
+      configured:true,
+      total,
+      debt:debt===null?0:debt,
+      net:total-(debt===null?0:debt),
+      updatedAt:(updatedAt && !isNaN(updatedAt.getTime()))?updatedAt:null
+    };
+  }catch(_){
+    return {configured:false};
+  }
+}
+
+function fmtMan(v){
+  if(v===null||v===undefined||!Number.isFinite(v)) return "—";
+  const sign=v<0?"-":"";
+  const a=Math.abs(v);
+  if(a>=10000){
+    const oku=a/10000;
+    return sign+(Number.isInteger(oku)?oku.toFixed(0):oku.toFixed(1))+"億";
+  }
+  return sign+Math.round(a).toLocaleString("ja-JP")+"万";
+}
+
+async function setupAssets(existing){
+  const a=new Alert();
+  a.title="資産を端末内に保存";
+  a.message="値はiPhoneのKeychainだけに保存され、GitHubへは送信しません。単位は万円。";
+  a.addTextField("総資産（万円）",existing&&existing.configured?String(existing.total):"");
+  a.addTextField("負債（万円）",existing&&existing.configured?String(existing.debt):"");
+  a.addAction("保存");
+  a.addCancelAction("キャンセル");
+  const r=await a.presentAlert();
+  if(r!==0) return existing||{configured:false};
+
+  const total=parseAssetNumber(a.textFieldValue(0));
+  const debt=parseAssetNumber(a.textFieldValue(1));
+  if(total===null) return existing||{configured:false};
+
+  const payload={
+    total,
+    debt:debt===null?0:debt,
+    updatedAt:new Date().toISOString()
+  };
+  try{Keychain.set(ASSET_KEY,JSON.stringify(payload));}catch(_){}
+  return loadAssets();
+}
+
+function assetSetupURL(){
+  try{
+    const base=URLScheme.forRunningScript();
+    return base+(base.includes("?")?"&":"?")+"setupAssets=1";
+  }catch(_){
+    return null;
+  }
+}
 
 function icon(stack,name,color,size=12){const sf=SFSymbol.named(name);sf.applyFont(Font.systemFont(size));const i=stack.addImage(sf.image);i.imageSize=new Size(size,size);i.tintColor=color;return i;}
 function normalize(v){return v?String(v).replace(/\s+/g," ").trim():"";}
@@ -410,6 +483,10 @@ function anniversary(){
 }
 
 const fetchedAt=new Date();
+let assetData=loadAssets();
+if(!config.runsInWidget && (!assetData.configured || (args.queryParameters&&args.queryParameters.setupAssets==="1"))){
+  assetData=await setupAssets(assetData);
+}
 const position=await getPosition();
 const [W,eventsData,tasksData,universityData,lifestyleSources,newsData,tideData]=await Promise.all([getWeather(position),getEvents(),getTasks(),getUniversityItems(),getLifestyleSources(),getNews(),getTide()]);
 const life={sourcesOK:lifestyleSources.calendarOK||lifestyleSources.reminderOK,fishing:nextLifestyle(lifestyleSources,LIFESTYLE.fishing),garden:nextLifestyle(lifestyleSources,LIFESTYLE.garden),workout:nextLifestyle(lifestyleSources,LIFESTYLE.workout)};
@@ -500,17 +577,26 @@ const row4=w.addStack();row4.spacing=7;
 
 const assetCard=row4.addStack();assetCard.layoutVertically();
 assetCard.backgroundColor=C.weakCard;assetCard.cornerRadius=12;
-assetCard.setPadding(3,7,3,7);assetCard.size=new Size(72,44);
+assetCard.setPadding(3,7,3,7);assetCard.size=new Size(92,44);
+const setupURL=assetSetupURL();if(setupURL)assetCard.url=setupURL;
 let ah=assetCard.addStack();ah.centerAlignContent();
 icon(ah,"chart.line.uptrend.xyaxis",C.green,9);ah.addSpacer(4);
 let ax=ah.addText("資産");ax.font=Font.boldSystemFont(9);ax.textColor=C.text;
-assetCard.addSpacer(4);
-ax=assetCard.addText("未接続");ax.font=Font.systemFont(8);ax.textColor=C.gray;
-ax=assetCard.addText("安全な接続待ち");ax.font=Font.systemFont(6);ax.textColor=C.gray;
+ah.addSpacer();
+ax=ah.addText(assetData.configured?"端末内":"設定");
+ax.font=Font.systemFont(6);ax.textColor=assetData.configured?C.green:C.orange;
+assetCard.addSpacer(2);
+if(assetData.configured){
+  ax=assetCard.addText("総 "+fmtMan(assetData.total));ax.font=Font.semiboldSystemFont(7);ax.textColor=C.text;ax.lineLimit=1;
+  ax=assetCard.addText("純 "+fmtMan(assetData.net));ax.font=Font.systemFont(7);ax.textColor=assetData.net>=0?C.green:C.red;ax.lineLimit=1;
+}else{
+  ax=assetCard.addText("タップで設定");ax.font=Font.systemFont(7);ax.textColor=C.gray;
+  ax=assetCard.addText("GitHub保存なし");ax.font=Font.systemFont(5);ax.textColor=C.gray;
+}
 
 const newsCard=row4.addStack();newsCard.layoutVertically();
 newsCard.backgroundColor=C.weakCard;newsCard.cornerRadius=12;
-newsCard.setPadding(3,8,3,8);newsCard.size=new Size(256,44);
+newsCard.setPadding(3,8,3,8);newsCard.size=new Size(236,44);
 
 let nh=newsCard.addStack();nh.centerAlignContent();
 icon(nh,"newspaper.fill",C.blue,10);nh.addSpacer(5);
