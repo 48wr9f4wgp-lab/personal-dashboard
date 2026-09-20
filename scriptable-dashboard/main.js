@@ -1,8 +1,8 @@
-// 俺専用ダッシュボード v1.16-github
+// 俺専用ダッシュボード v1.17-github
 // Remote main for Scriptable loader.
 // IMPORTANT: Script.complete() は loader 側で呼ぶ。
 
-const VERSION = "1.16-github";
+const VERSION = "1.17-github";
 
 const USER = globalThis.ORE_DASH_CONFIG || {};
 
@@ -275,12 +275,18 @@ async function getUniversityItems(){
 }
 
 
+function isHolidayCalendarTitle(title){
+  const t=normalize(title).toLowerCase();
+  return t.includes("祝日") || t.includes("holiday");
+}
+
 function upcomingPriority(item){
   if(item.kind==="期限") return 0;
   if(item.source==="家族") return 1;
   if(item.source==="リマインダー") return 2;
   if(item.source==="放送大学") return 3;
-  return 4;
+  if(item.source==="予定") return 4;
+  return 5;
 }
 
 async function getUpcoming7(universityItems,ann){
@@ -294,9 +300,16 @@ async function getUpcoming7(universityItems,ann){
     for(const e of es){
       const d=new Date(e.startDate);
       if(d<start || d>=end) continue;
+
+      const calendarTitle=calName(e);
+      if(isHolidayCalendarTitle(calendarTitle)) continue;
+
       const title=normalize(e.title);
+      if(!title) continue;
+
       const combined=title+" "+normalize(e.notes);
-      if(isUniversity(combined,calName(e))) continue;
+      if(isUniversity(combined,calendarTitle)) continue;
+
       out.push({
         title,
         date:d,
@@ -315,6 +328,7 @@ async function getUpcoming7(universityItems,ann){
       const d=new Date(r.dueDate);
       if(d<start || d>=end) continue;
       const title=normalize(r.title);
+      if(!title) continue;
       const combined=title+" "+normalize(r.notes);
       if(isUniversity(combined,calName(r))) continue;
       out.push({
@@ -362,7 +376,7 @@ async function getUpcoming7(universityItems,ann){
       return a.date-b.date;
     })
     .filter(x=>{
-      const k=normalize(x.title)+"|"+dayStart(x.date).getTime();
+      const k=normalize(x.title).toLowerCase()+"|"+dayStart(x.date).getTime();
       if(seen.has(k)) return false;
       seen.add(k);
       return true;
