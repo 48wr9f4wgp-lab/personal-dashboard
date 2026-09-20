@@ -1,8 +1,8 @@
-// 俺専用ダッシュボード v1.19-github
+// 俺専用ダッシュボード v1.20-github
 // Remote main for Scriptable loader.
 // IMPORTANT: Script.complete() は loader 側で呼ぶ。
 
-const VERSION = "1.19-github";
+const VERSION = "1.20-github";
 
 const USER = globalThis.ORE_DASH_CONFIG || {};
 
@@ -446,12 +446,12 @@ function cleanUniversityTitle(title,date){
   if(date){
     const m=date.getMonth()+1,d=date.getDate();
     const patterns=[
-      new RegExp("^"+m+"\\/"+d+"\\s*"),
-      new RegExp("^"+m+"月"+d+"日\\s*")
+      new RegExp(m+"\\/"+d+"\\s*"),
+      new RegExp(m+"月"+d+"日\\s*")
     ];
     for(const p of patterns) v=v.replace(p,"");
   }
-  return v||"放送大学予定";
+  return normalize(v)||"放送大学予定";
 }
 
 function futureIconName(it){
@@ -519,14 +519,19 @@ w.addSpacer(4);
 
 // ROW1
 const row1=w.addStack();row1.spacing=8;
-const eventCard=mkCard(row1);eventCard.size=new Size(178,84);section(eventCard,"calendar","今日の予定",C.blue);eventCard.addSpacer(5);
+const taskEmpty=tasksData.ok && tasksData.items.length===0;
+const eventWidth=taskEmpty?232:178;
+const taskWidth=taskEmpty?97:151;
+const eventTitleChars=taskEmpty?28:18;
+
+const eventCard=mkCard(row1);eventCard.size=new Size(eventWidth,84);section(eventCard,"calendar","今日の予定",C.blue);eventCard.addSpacer(5);
 if(!eventsData.ok){t=eventCard.addText("取得失敗");t.font=Font.systemFont(10);t.textColor=C.red;}
 else if(!eventsData.items.length){t=eventCard.addText("この後の予定なし");t.font=Font.systemFont(10);t.textColor=C.sub;}
-else eventsData.items.forEach((e,i)=>{const l=eventCard.addStack();l.centerAlignContent();let x=l.addText(fmtTime(e.startDate,isAllDayLikeEvent(e)));x.font=Font.boldSystemFont(10);x.textColor=C.blue;l.addSpacer(5);x=l.addText(shorten(e.title,18));x.font=Font.systemFont(10);x.textColor=C.text;x.lineLimit=1;if(i<eventsData.items.length-1)eventCard.addSpacer(3);});
+else eventsData.items.forEach((e,i)=>{const l=eventCard.addStack();l.centerAlignContent();let x=l.addText(fmtTime(e.startDate,isAllDayLikeEvent(e)));x.font=Font.boldSystemFont(10);x.textColor=C.blue;l.addSpacer(5);x=l.addText(shorten(e.title,eventTitleChars));x.font=Font.systemFont(10);x.textColor=C.text;x.lineLimit=1;x.minimumScaleFactor=0.82;if(i<eventsData.items.length-1)eventCard.addSpacer(3);});
 
-const taskCard=mkCard(row1);taskCard.size=new Size(151,84);section(taskCard,"checkmark.circle.fill","やること",C.green);taskCard.addSpacer(5);
+const taskCard=mkCard(row1);taskCard.size=new Size(taskWidth,84);section(taskCard,"checkmark.circle.fill","やること",C.green);taskCard.addSpacer(5);
 if(!tasksData.ok){t=taskCard.addText("取得失敗");t.font=Font.systemFont(10);t.textColor=C.red;}
-else if(!tasksData.items.length){t=taskCard.addText("今日のタスクなし");t.font=Font.systemFont(10);t.textColor=C.sub;}
+else if(!tasksData.items.length){t=taskCard.addText("なし");t.font=Font.systemFont(10);t.textColor=C.sub;}
 else tasksData.items.forEach((r,i)=>{const l=taskCard.addStack();l.centerAlignContent();icon(l,"circle",r.isOverdue?C.red:C.green,8);l.addSpacer(5);const x=l.addText(shorten(r.title,16));x.font=Font.systemFont(10);x.textColor=C.text;x.lineLimit=1;if(i<tasksData.items.length-1)taskCard.addSpacer(3);});
 w.addSpacer(3);
 
@@ -535,7 +540,9 @@ const row2=w.addStack();row2.spacing=8;
 const family=mkCard(row2);family.size=new Size(112,86);section(family,"person.2.fill","家族",C.orange);family.addSpacer(4);
 t=family.addText("結婚記念日");t.font=Font.systemFont(10);t.textColor=C.sub;
 if(ann){
-  t=family.addText(ann.days===0?"今日 ♥":"あと"+ann.days+"日");t.font=Font.boldSystemFont(18);t.textColor=C.text;
+  const annColor=ann.days<=3?C.red:(ann.days<=7?C.orange:C.text);
+  const annSize=ann.days<=3?18:16;
+  t=family.addText(ann.days===0?"今日 ♥":"あと"+ann.days+"日");t.font=Font.boldSystemFont(annSize);t.textColor=annColor;
   t=family.addText(fmtDate(ann.date));t.font=Font.systemFont(9);t.textColor=C.sub;
 }else{
   t=family.addText("未設定");t.font=Font.boldSystemFont(13);t.textColor=C.sub;
