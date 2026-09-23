@@ -1,8 +1,8 @@
-// 俺専用ダッシュボード v1.23-github
+// 俺専用ダッシュボード v1.24-github
 // Remote main for Scriptable loader.
 // IMPORTANT: Script.complete() は loader 側で呼ぶ。
 
-const VERSION = "1.23-github";
+const VERSION = "1.24-github";
 
 const USER = globalThis.ORE_DASH_CONFIG || {};
 
@@ -11,23 +11,14 @@ const CFG = Object.assign({
   fallbackLat:35.6812,
   fallbackLon:139.7671,
   maxEvents:4,
-  universityLookAheadDays:180,
-  universityMaxItems:3,
+  deadlineLookAheadDays:180,
+  deadlineMaxItems:3,
   anniversaryMonth:null,
   anniversaryDay:null,
   refreshMinutes:15
 }, USER.cfg || {});
 
-const UNIVERSITY_KEYWORDS =
-  (USER.universityKeywords && USER.universityKeywords.length)
-    ? USER.universityKeywords
-    : ["放送大学"];
-
 const DEADLINE_KEYWORDS = ["締切","〆切","期限","払込期限","納入期限","提出期限","申込期限","申請期限","回答期限","最終日","必着"];
-const START_KEYWORDS = ["開始","提出開始","受付開始","申込開始","申請開始","試験開始","公開開始"];
-const END_KEYWORDS = ["終了","提出終了","受付終了","申込終了","申請終了"];
-const PERIOD_KEYWORDS = ["期間","提出期間","受付期間","試験期間","申込期間"];
-const SCHEDULE_KEYWORDS = ["試験日","単位認定試験","面接授業","試験"];
 
 const C = {
   text:new Color("#0F172A"), sub:new Color("#64748B"),
@@ -110,80 +101,65 @@ async function getEvents(){
   }catch(_){return {ok:false,items:[]};}
 }
 
-function isUniversity(text,calendarTitle){return any(text,UNIVERSITY_KEYWORDS)||any(calendarTitle,UNIVERSITY_KEYWORDS);}
-
-function mergeUniversityByDayKind(items){
-  const groups=new Map();
-
-  for(const it of items){
-    const key=dayStart(it.date).getTime()+"|"+it.kind;
-    if(!groups.has(key)){
-      groups.set(key,{...it,count:1});
-    }else{
-      const g=groups.get(key);
-      g.count+=1;
-    }
-  }
-
-  return Array.from(groups.values()).map(g=>({
-    title:g.count>1 ? g.count+"件の"+g.kind : g.title,
-    date:g.date,
-    kind:g.kind,
-    color:g.color,
-    count:g.count
-  }));
+function isDeadlineText(text){
+  return any(normalize(text),DEADLINE_KEYWORDS);
 }
 
-async function getUniversityItems(){
-  const out={reminderOK:false,calendarOK:false,items:[]};
-  try{
-    const rs=await Reminder.allIncomplete();out.reminderOK=true;
-    for(const r of rs){
-      if(!r.dueDate)continue;
-      const title=normalize(r.title), notes=normalize(r.notes), combined=title+" "+notes;
-      if(!isUniversity(combined,calName(r)))continue;
-      let kind=null,color=C.blue;
-      if(any(combined,START_KEYWORDS)){kind="開始";color=C.purple;}
-      else if(any(combined,END_KEYWORDS)){kind="終了";color=C.orange;}
-      else if(any(combined,DEADLINE_KEYWORDS)){kind="期限";color=C.red;}
-      else if(any(combined,SCHEDULE_KEYWORDS)){kind="予定";color=C.blue;}
-      if(kind)out.items.push({title,date:r.dueDate,kind,color});
-    }
-  }catch(_){}
-  try{
-    const now=new Date(), endSearch=addDays(now,CFG.universityLookAheadDays);
-    const es=await CalendarEvent.between(now,endSearch);out.calendarOK=true;
-    for(const e of es){
-      const title=normalize(e.title), notes=normalize(e.notes), combined=title+" "+notes;
-      if(!isUniversity(combined,calName(e)))continue;
-      const start=new Date(e.startDate), end=realEventEnd(e), sd=dayStart(start), ed=dayStart(end);
-      const periodLike=ed>sd||any(combined,PERIOD_KEYWORDS);
-      if(periodLike){
-        out.items.push({title,date:start,kind:"開始",color:C.purple});
-        if(ed.getTime()!==sd.getTime())out.items.push({title,date:end,kind:"終了",color:C.orange});
-        continue;
-      }
-      let kind=null,color=C.blue;
-      if(any(combined,START_KEYWORDS)){kind="開始";color=C.purple;}
-      else if(any(combined,END_KEYWORDS)){kind="終了";color=C.orange;}
-      else if(any(combined,DEADLINE_KEYWORDS)){kind="期限";color=C.red;}
-      else if(any(combined,SCHEDULE_KEYWORDS)){kind="予定";color=C.blue;}
-      if(kind)out.items.push({title,date:start,kind,color});
-    }
-  }catch(_){}
-  const seen=new Set();
-  const exact=out.items
-    .sort((a,b)=>a.date-b.date)
-    .filter(x=>{
-      const k=normalize(x.title).toLowerCase()+"|"+x.kind+"|"+dayStart(x.date).getTime();
-      if(seen.has(k)) return false;
-      seen.add(k);
-      return true;
-    });
+function cleanDeadlineTitle(title,date){
+  let v=normalize(title);
+  v=v.replace(/^放送大学\s*[|｜:：\-]*\s*/,"");
+  if(date){
+    const m=date.getMonth()+1,d=date.getDate();
+    const patterns=[
+      new RegExp(m+"\\/"+d+"\\s*"),
+      new RegExp(m+"月"+d+"日\\s*")
+    ];
+    for(const p of patterns) v=v.replace(p,"");
+  }
+  return normalize(v)||"重要期限";
+}
 
-  out.items=mergeUniversityByDayKind(exact)
-    .sort((a,b)=>a.date-b.date)
-    .slice(0,CFG.universityMaxItems);
+async function getImportantDeadlines(){
+  const out={ok:false,items:[]};
+  try{
+    const now=new Date();
+    const endSearch=addDays(now,CFG.deadlineLookAheadDays);
+    const es=await CalendarEvent.between(dayStart(now),endSearch);
+    out.ok=true;
+
+    const seen=new Set();
+    for(const e of es){
+      const calendarTitle=calName(e);
+      if(isHolidayCalendarTitle(calendarTitle)) continue;
+
+      const title=normalize(e.title);
+      if(!title) continue;
+
+      const notes=normalize(e.notes);
+      const combined=title+" "+notes;
+      if(!isDeadlineText(combined)) continue;
+
+      const date=new Date(e.startDate);
+      const cleaned=cleanDeadlineTitle(title,date);
+      const key=cleaned.toLowerCase()+"|"+dayStart(date).getTime();
+      if(seen.has(key)) continue;
+      seen.add(key);
+
+      out.items.push({
+        title:cleaned,
+        rawTitle:title,
+        date,
+        color:C.red,
+        source:calendarTitle||"カレンダー"
+      });
+    }
+
+    out.items=out.items
+      .filter(x=>x.date>=dayStart(now))
+      .sort((a,b)=>a.date-b.date)
+      .slice(0,CFG.deadlineMaxItems);
+
+  }catch(_){}
 
   return out;
 }
@@ -229,15 +205,12 @@ function isAllDayLikeEvent(e){
 }
 
 function upcomingPriority(item){
-  if(item.kind==="期限") return 0;
-  if(item.source==="家族") return 1;
-  if(item.source==="リマインダー") return 2;
-  if(item.source==="放送大学") return 3;
-  if(item.source==="予定") return 4;
-  return 5;
+  if(item.source==="家族") return 0;
+  if(item.source==="予定") return 1;
+  return 2;
 }
 
-async function getUpcoming7(universityItems,ann){
+async function getUpcoming7(ann){
   const now=new Date();
   const start=addDays(dayStart(now),1);
   const end=addDays(start,7);
@@ -256,7 +229,9 @@ async function getUpcoming7(universityItems,ann){
       if(!title) continue;
 
       const combined=title+" "+normalize(e.notes);
-      if(isUniversity(combined,calendarTitle)) continue;
+
+      // 期限は「重要期限」カードへ一本化して二重表示しない。
+      if(isDeadlineText(combined)) continue;
 
       out.push({
         title,
@@ -270,27 +245,6 @@ async function getUpcoming7(universityItems,ann){
     }
   }catch(_){}
 
-  try{
-    const rs=await Reminder.allIncomplete();
-    for(const r of rs){
-      if(!r.dueDate) continue;
-      const d=new Date(r.dueDate);
-      if(d<start || d>=end) continue;
-      const title=normalize(r.title);
-      if(!title) continue;
-      const combined=title+" "+normalize(r.notes);
-      if(isUniversity(combined,calName(r))) continue;
-      out.push({
-        title,
-        date:d,
-        allDay:!r.dueDateIncludesTime,
-        source:"リマインダー",
-        kind:"予定",
-        color:C.green
-      });
-    }
-  }catch(_){}
-
   if(ann && ann.date>=start && ann.date<end){
     out.push({
       title:"結婚記念日",
@@ -300,19 +254,6 @@ async function getUpcoming7(universityItems,ann){
       kind:"予定",
       color:C.orange
     });
-  }
-
-  for(const it of universityItems||[]){
-    if(it.date>=start && it.date<end){
-      out.push({
-        title:it.title,
-        date:new Date(it.date),
-        allDay:true,
-        source:"放送大学",
-        kind:it.kind,
-        color:it.color
-      });
-    }
   }
 
   const seen=new Set();
@@ -338,24 +279,8 @@ function upcomingDayLabel(d){
   return fmtDate(d);
 }
 
-function cleanUniversityTitle(title,date){
-  let v=normalize(title);
-  v=v.replace(/^放送大学\s*[|｜:：\-]*\s*/,"");
-  if(date){
-    const m=date.getMonth()+1,d=date.getDate();
-    const patterns=[
-      new RegExp(m+"\\/"+d+"\\s*"),
-      new RegExp(m+"月"+d+"日\\s*")
-    ];
-    for(const p of patterns) v=v.replace(p,"");
-  }
-  return normalize(v)||"放送大学予定";
-}
-
 function futureIconName(it){
   if(it.source==="家族" || normalize(it.title).includes("誕生日")) return "gift.fill";
-  if(it.source==="放送大学") return "graduationcap.fill";
-  if(it.source==="リマインダー") return "checkmark.circle.fill";
   const t=normalize(it.title).toLowerCase();
   if(t.includes("japan") || t.includes("uruguay") || t.includes("サッカー") || t.includes("football")) return "soccerball";
   return "calendar";
@@ -363,8 +288,6 @@ function futureIconName(it){
 
 function futureIconColor(it){
   if(it.source==="家族" || normalize(it.title).includes("誕生日")) return C.orange;
-  if(it.source==="放送大学") return C.purple;
-  if(it.source==="リマインダー") return C.green;
   return C.blue;
 }
 
@@ -377,9 +300,9 @@ function anniversary(){
 
 const fetchedAt=new Date();
 const position=await getPosition();
-const [W,eventsData,universityData]=await Promise.all([getWeather(position),getEvents(),getUniversityItems()]);
+const [W,eventsData,deadlineData]=await Promise.all([getWeather(position),getEvents(),getImportantDeadlines()]);
 const ann=anniversary();
-const upcoming7=await getUpcoming7(universityData.items,ann);
+const upcoming7=await getUpcoming7(ann);
 const nextCombat=upcoming7.find(x=>x.combat)||null;
 const visibleUpcoming=(nextCombat?upcoming7.filter(x=>x!==nextCombat).slice(0,4):upcoming7.slice(0,5));
 const [weatherName,weatherIcon]=weatherInfo(W.code);
@@ -445,36 +368,37 @@ if(!eventsData.ok){
 }
 w.addSpacer(4);
 
-// ROW2
-const row2=w.addStack();row2.spacing=8;
-const family=mkCard(row2);family.size=new Size(112,86);section(family,"person.2.fill","家族",C.orange);family.addSpacer(4);
-t=family.addText("結婚記念日");t.font=Font.systemFont(10);t.textColor=C.sub;
-if(ann){
-  const annColor=ann.days<=3?C.red:(ann.days<=7?C.orange:C.text);
-  const annSize=ann.days<=3?18:16;
-  t=family.addText(ann.days===0?"今日 ♥":"あと"+ann.days+"日");t.font=Font.boldSystemFont(annSize);t.textColor=annColor;
-  t=family.addText(fmtDate(ann.date));t.font=Font.systemFont(9);t.textColor=C.sub;
-}else{
-  t=family.addText("未設定");t.font=Font.boldSystemFont(13);t.textColor=C.sub;
-}
+// ROW2 important deadlines
+const deadlineCard=mkCard(w);
+deadlineCard.setPadding(10,12,10,12);
+section(deadlineCard,"exclamationmark.triangle.fill","重要期限",C.red);
+deadlineCard.addSpacer(6);
 
-const uni=mkCard(row2);uni.size=new Size(217,86);
-const uh=section(uni,"graduationcap.fill","放送大学",C.purple);
-uni.addSpacer(5);
-if(!universityData.items.length){
-  t=uni.addText((universityData.reminderOK||universityData.calendarOK)?"予定なし":"取得失敗");
-  t.font=Font.systemFont(10);t.textColor=(universityData.reminderOK||universityData.calendarOK)?C.sub:C.red;
-}else universityData.items.forEach((it,i)=>{
-  const l=uni.addStack();l.centerAlignContent();
-  let dot=l.addText("●");dot.font=Font.systemFont(8);dot.textColor=it.color;
-  l.addSpacer(4);
-  let date=l.addText(fmtDate(it.date));date.font=Font.boldSystemFont(9);date.textColor=C.text;
-  l.addSpacer(5);
-  let title=l.addText(shorten(cleanUniversityTitle(it.title,it.date),15));title.font=Font.systemFont(9);title.textColor=C.text;title.lineLimit=1;title.minimumScaleFactor=0.78;
-  l.addSpacer();
-  let rel=l.addText(relativeDay(it.date));rel.font=Font.boldSystemFont(8);rel.textColor=it.color;
-  if(i<universityData.items.length-1)uni.addSpacer(4);
-});
+if(!deadlineData.ok){
+  t=deadlineCard.addText("取得失敗");
+  t.font=Font.systemFont(11);t.textColor=C.red;
+}else if(!deadlineData.items.length){
+  t=deadlineCard.addText("直近の重要期限なし");
+  t.font=Font.systemFont(11);t.textColor=C.sub;
+}else{
+  deadlineData.items.forEach((it,i)=>{
+    const l=deadlineCard.addStack();l.centerAlignContent();
+
+    let dot=l.addText("●");dot.font=Font.systemFont(8);dot.textColor=C.red;
+    l.addSpacer(5);
+
+    let date=l.addText(fmtDate(it.date));date.font=Font.boldSystemFont(10);date.textColor=C.text;
+    l.addSpacer(7);
+
+    let title=l.addText(shorten(it.title,28));
+    title.font=Font.systemFont(10);title.textColor=C.text;title.lineLimit=1;title.minimumScaleFactor=0.80;
+
+    l.addSpacer();
+    let rel=l.addText(relativeDay(it.date));rel.font=Font.boldSystemFont(9);rel.textColor=C.red;
+
+    if(i<deadlineData.items.length-1)deadlineCard.addSpacer(5);
+  });
+}
 w.addSpacer(4);
 
 // ROW4 next 7 days
@@ -530,7 +454,7 @@ if(!upcoming7.length){
     d.textColor=it.color||C.blue;
     line.addSpacer(7);
 
-    let title=line.addText(it.source==="放送大学" ? cleanUniversityTitle(it.title,it.date) : it.title);
+    let title=line.addText(it.title);
     title.font=Font.systemFont(10);
     title.textColor=C.text;
     title.lineLimit=1;
