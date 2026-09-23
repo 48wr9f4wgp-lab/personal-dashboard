@@ -1,8 +1,8 @@
-// 俺専用ダッシュボード v1.27-github
+// 俺専用ダッシュボード v1.28-github
 // Remote main for Scriptable loader.
 // IMPORTANT: Script.complete() は loader 側で呼ぶ。
 
-const VERSION = "1.27-github";
+const VERSION = "1.28-github";
 
 const USER = globalThis.ORE_DASH_CONFIG || {};
 
@@ -327,7 +327,10 @@ if(nextSoccer && nextSoccer!==nextCombat) featured.push(nextSoccer);
 featured.sort((a,b)=>a.date-b.date);
 
 const featuredEvents=featured.slice(0,2);
-const visibleUpcoming=upcoming7.filter(x=>!featuredEvents.includes(x)).slice(0,Math.max(0,5-featuredEvents.length));
+const displayUpcoming=[
+  ...featuredEvents,
+  ...upcoming7.filter(x=>!featuredEvents.includes(x))
+].slice(0,5);
 const [weatherName,weatherIcon]=weatherInfo(W.code);
 
 const w=new ListWidget();
@@ -446,7 +449,7 @@ let fh=futureCard.addStack();fh.centerAlignContent();
 icon(fh,"calendar.badge.clock",C.blue,11);fh.addSpacer(5);
 let fx=fh.addText("直近予定");fx.font=Font.boldSystemFont(12);fx.textColor=C.text;
 fh.addSpacer();
-const shownCount=featuredEvents.length+visibleUpcoming.length;
+const shownCount=displayUpcoming.length;
 fx=fh.addText(shownCount?shownCount+"件":"予定なし");
 fx.font=Font.systemFont(8);fx.textColor=upcoming7.length?C.green:C.gray;
 futureCard.addSpacer(5);
@@ -455,61 +458,25 @@ if(!upcoming7.length){
   fx=futureCard.addText("重要な予定はありません");
   fx.font=Font.systemFont(9);fx.textColor=C.sub;
 }else{
-  if(featuredEvents.length){
-    const featuredBox=futureCard.addStack();featuredBox.layoutVertically();
-    featuredBox.backgroundColor=new Color("#EEF2FF",0.78);
-    featuredBox.cornerRadius=9;
-    featuredBox.setPadding(6,8,6,8);
-
-    featuredEvents.forEach((it,i)=>{
-      const line=featuredBox.addStack();line.centerAlignContent();
-
-      let emoji=line.addText(it.combat?"🥊":"⚽");
-      emoji.font=Font.systemFont(10);
-      line.addSpacer(5);
-
-      let date=line.addText(upcomingDayLabel(it.date));
-      date.font=Font.boldSystemFont(8);
-      date.textColor=it.combat?C.red:C.blue;
-      line.addSpacer(6);
-
-      let title=line.addText(it.title);
-      title.font=Font.semiboldSystemFont(9);
-      title.textColor=C.text;
-      title.lineLimit=1;
-      title.minimumScaleFactor=0.78;
-
-      if(!it.allDay){
-        line.addSpacer(5);
-        let tm=line.addText(fmtTime(it.date,false));
-        tm.font=Font.semiboldSystemFont(8);
-        tm.textColor=C.sub;
-      }
-
-      line.addSpacer(5);
-      let rel=line.addText(relativeDay(it.date));
-      rel.font=Font.boldSystemFont(8);
-      rel.textColor=it.combat?C.red:C.blue;
-
-      if(i<featuredEvents.length-1) featuredBox.addSpacer(4);
-    });
-
-    futureCard.addSpacer(6);
-  }
-
-  visibleUpcoming.forEach((it,i)=>{
+  displayUpcoming.forEach((it,i)=>{
     const line=futureCard.addStack();line.centerAlignContent();
+    const featured=featuredEvents.includes(it);
 
-    icon(line,futureIconName(it),futureIconColor(it),9);
+    if(it.combat){
+      let em=line.addText("🥊");
+      em.font=Font.systemFont(10);
+    }else{
+      icon(line,futureIconName(it),futureIconColor(it),9);
+    }
     line.addSpacer(5);
 
     let d=line.addText(upcomingDayLabel(it.date));
     d.font=Font.boldSystemFont(9);
-    d.textColor=it.color||C.blue;
+    d.textColor=it.combat?C.red:(it.soccer?C.blue:(it.color||C.blue));
     line.addSpacer(7);
 
     let title=line.addText(it.title);
-    title.font=Font.systemFont(10);
+    title.font=featured?Font.semiboldSystemFont(10):Font.systemFont(10);
     title.textColor=C.text;
     title.lineLimit=1;
     title.minimumScaleFactor=0.80;
@@ -521,9 +488,15 @@ if(!upcoming7.length){
       tm.textColor=C.sub;
     }
 
-    if(i<visibleUpcoming.length-1) futureCard.addSpacer(7);
-  });
+    if(featured){
+      line.addSpacer(6);
+      let rel=line.addText(relativeDay(it.date));
+      rel.font=Font.boldSystemFont(8);
+      rel.textColor=it.combat?C.red:C.blue;
+    }
 
+    if(i<displayUpcoming.length-1) futureCard.addSpacer(7);
+  });
 }
 
 // freshness/version moved into header to preserve bottom space
