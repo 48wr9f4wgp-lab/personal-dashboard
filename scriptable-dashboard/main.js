@@ -1,8 +1,8 @@
-// 俺専用ダッシュボード v1.21-github
+// 俺専用ダッシュボード v1.22-github
 // Remote main for Scriptable loader.
 // IMPORTANT: Script.complete() は loader 側で呼ぶ。
 
-const VERSION = "1.21-github";
+const VERSION = "1.22-github";
 
 const USER = globalThis.ORE_DASH_CONFIG || {};
 
@@ -10,8 +10,7 @@ const CFG = Object.assign({
   fallbackCity:"現在地",
   fallbackLat:35.6812,
   fallbackLon:139.7671,
-  maxEvents:3,
-  maxTasks:3,
+  maxEvents:4,
   universityLookAheadDays:180,
   universityMaxItems:3,
   anniversaryMonth:null,
@@ -242,11 +241,6 @@ async function getEvents(){
 
     return {ok:true,items};
   }catch(_){return {ok:false,items:[]};}
-}
-
-async function getTasks(){
-  try{return {ok:true,items:(await Reminder.incompleteDueToday()).slice(0,CFG.maxTasks)};}
-  catch(_){return {ok:false,items:[]};}
 }
 
 function isUniversity(text,calendarTitle){return any(text,UNIVERSITY_KEYWORDS)||any(calendarTitle,UNIVERSITY_KEYWORDS);}
@@ -516,7 +510,7 @@ function anniversary(){
 
 const fetchedAt=new Date();
 const position=await getPosition();
-const [W,eventsData,tasksData,universityData,tideData]=await Promise.all([getWeather(position),getEvents(),getTasks(),getUniversityItems(),getTide()]);
+const [W,eventsData,universityData,tideData]=await Promise.all([getWeather(position),getEvents(),getUniversityItems(),getTide()]);
 const ann=anniversary();
 const upcoming7=await getUpcoming7(universityData.items,ann);
 const nextCombat=upcoming7.find(x=>x.combat)||null;
@@ -556,23 +550,37 @@ if(W.ok){
 }else{t=header.addText("天気取得失敗");t.font=Font.semiboldSystemFont(10);t.textColor=C.red;}
 w.addSpacer(4);
 
-// ROW1
-const row1=w.addStack();row1.spacing=8;
-const taskEmpty=tasksData.ok && tasksData.items.length===0;
-const eventWidth=taskEmpty?232:178;
-const taskWidth=taskEmpty?97:151;
-const eventTitleChars=taskEmpty?28:18;
+// ROW1 full-width today
+const eventCard=mkCard(w);
+eventCard.setPadding(10,12,10,12);
+section(eventCard,"calendar","今日の予定",C.blue);
+eventCard.addSpacer(6);
 
-const eventCard=mkCard(row1);eventCard.size=new Size(eventWidth,84);section(eventCard,"calendar","今日の予定",C.blue);eventCard.addSpacer(5);
-if(!eventsData.ok){t=eventCard.addText("取得失敗");t.font=Font.systemFont(10);t.textColor=C.red;}
-else if(!eventsData.items.length){t=eventCard.addText("この後の予定なし");t.font=Font.systemFont(10);t.textColor=C.sub;}
-else eventsData.items.forEach((e,i)=>{const l=eventCard.addStack();l.centerAlignContent();let x=l.addText(fmtTime(e.startDate,isAllDayLikeEvent(e)));x.font=Font.boldSystemFont(10);x.textColor=C.blue;l.addSpacer(5);x=l.addText(shorten(e.title,eventTitleChars));x.font=Font.systemFont(10);x.textColor=C.text;x.lineLimit=1;x.minimumScaleFactor=0.82;if(i<eventsData.items.length-1)eventCard.addSpacer(3);});
+if(!eventsData.ok){
+  t=eventCard.addText("取得失敗");
+  t.font=Font.systemFont(11);t.textColor=C.red;
+}else if(!eventsData.items.length){
+  t=eventCard.addText("今日は予定なし");
+  t.font=Font.systemFont(11);t.textColor=C.sub;
+}else{
+  eventsData.items.forEach((e,i)=>{
+    const l=eventCard.addStack();l.centerAlignContent();
 
-const taskCard=mkCard(row1);taskCard.size=new Size(taskWidth,84);section(taskCard,"checkmark.circle.fill","やること",C.green);taskCard.addSpacer(5);
-if(!tasksData.ok){t=taskCard.addText("取得失敗");t.font=Font.systemFont(10);t.textColor=C.red;}
-else if(!tasksData.items.length){t=taskCard.addText("なし");t.font=Font.systemFont(10);t.textColor=C.sub;}
-else tasksData.items.forEach((r,i)=>{const l=taskCard.addStack();l.centerAlignContent();icon(l,"circle",r.isOverdue?C.red:C.green,8);l.addSpacer(5);const x=l.addText(shorten(r.title,16));x.font=Font.systemFont(10);x.textColor=C.text;x.lineLimit=1;if(i<tasksData.items.length-1)taskCard.addSpacer(3);});
-w.addSpacer(3);
+    let x=l.addText(fmtTime(e.startDate,isAllDayLikeEvent(e)));
+    x.font=Font.boldSystemFont(11);
+    x.textColor=C.blue;
+    l.addSpacer(7);
+
+    x=l.addText(e.title);
+    x.font=Font.systemFont(11);
+    x.textColor=C.text;
+    x.lineLimit=1;
+    x.minimumScaleFactor=0.78;
+
+    if(i<eventsData.items.length-1)eventCard.addSpacer(5);
+  });
+}
+w.addSpacer(4);
 
 // ROW2
 const row2=w.addStack();row2.spacing=8;
@@ -604,7 +612,7 @@ if(!universityData.items.length){
   let rel=l.addText(relativeDay(it.date));rel.font=Font.boldSystemFont(8);rel.textColor=it.color;
   if(i<universityData.items.length-1)uni.addSpacer(4);
 });
-w.addSpacer(3);
+w.addSpacer(4);
 
 // ROW4 next 7 days
 const futureCard=w.addStack();futureCard.layoutVertically();
