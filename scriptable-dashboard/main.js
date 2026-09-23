@@ -1,8 +1,8 @@
-// 俺専用ダッシュボード v1.26-github
+// 俺専用ダッシュボード v1.27-github
 // Remote main for Scriptable loader.
 // IMPORTANT: Script.complete() は loader 側で呼ぶ。
 
-const VERSION = "1.26-github";
+const VERSION = "1.27-github";
 
 const USER = globalThis.ORE_DASH_CONFIG || {};
 
@@ -225,10 +225,10 @@ function upcomingPriority(item){
   return 2;
 }
 
-async function getUpcoming7(ann){
+async function getUpcomingNext(ann){
   const now=new Date();
   const start=addDays(dayStart(now),1);
-  const end=addDays(start,7);
+  const end=addDays(start,30);
   const out=[];
 
   try{
@@ -317,7 +317,7 @@ const fetchedAt=new Date();
 const position=await getPosition();
 const [W,eventsData,deadlineData]=await Promise.all([getWeather(position),getEvents(),getImportantDeadlines()]);
 const ann=anniversary();
-const upcoming7=await getUpcoming7(ann);
+const upcoming7=await getUpcomingNext(ann);
 const nextCombat=upcoming7.find(x=>x.combat)||null;
 const nextSoccer=upcoming7.find(x=>x.soccer)||null;
 
@@ -437,16 +437,17 @@ if(!deadlineData.ok){
 }
 w.addSpacer(4);
 
-// ROW4 next 7 days
+// ROW4 rolling next events
 const futureCard=w.addStack();futureCard.layoutVertically();futureCard.size=new Size(329,0);
 futureCard.backgroundColor=C.weakCard;futureCard.cornerRadius=12;
 futureCard.setPadding(10,11,10,11);
 
 let fh=futureCard.addStack();fh.centerAlignContent();
 icon(fh,"calendar.badge.clock",C.blue,11);fh.addSpacer(5);
-let fx=fh.addText("この先7日");fx.font=Font.boldSystemFont(12);fx.textColor=C.text;
+let fx=fh.addText("直近予定");fx.font=Font.boldSystemFont(12);fx.textColor=C.text;
 fh.addSpacer();
-fx=fh.addText(upcoming7.length?upcoming7.length+"件":"予定なし");
+const shownCount=featuredEvents.length+visibleUpcoming.length;
+fx=fh.addText(shownCount?shownCount+"件":"予定なし");
 fx.font=Font.systemFont(8);fx.textColor=upcoming7.length?C.green:C.gray;
 futureCard.addSpacer(5);
 
@@ -458,14 +459,7 @@ if(!upcoming7.length){
     const featuredBox=futureCard.addStack();featuredBox.layoutVertically();
     featuredBox.backgroundColor=new Color("#EEF2FF",0.78);
     featuredBox.cornerRadius=9;
-    featuredBox.setPadding(6,7,6,7);
-
-    const head=featuredBox.addStack();head.centerAlignContent();
-    let pin=head.addText("📌");pin.font=Font.systemFont(10);
-    head.addSpacer(5);
-    let label=head.addText("注目イベント");label.font=Font.boldSystemFont(9);label.textColor=C.purple;
-
-    featuredBox.addSpacer(3);
+    featuredBox.setPadding(6,8,6,8);
 
     featuredEvents.forEach((it,i)=>{
       const line=featuredBox.addStack();line.centerAlignContent();
