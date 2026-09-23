@@ -1,8 +1,8 @@
-// 俺専用ダッシュボード v1.25-github
+// 俺専用ダッシュボード v1.26-github
 // Remote main for Scriptable loader.
 // IMPORTANT: Script.complete() は loader 側で呼ぶ。
 
-const VERSION = "1.25-github";
+const VERSION = "1.26-github";
 
 const USER = globalThis.ORE_DASH_CONFIG || {};
 
@@ -193,6 +193,21 @@ function isCombatEvent(title,calendarTitle=""){
   return patterns.some(r=>r.test(t));
 }
 
+function isSoccerEvent(title,calendarTitle="",notes=""){
+  const t=(normalize(title)+" "+normalize(calendarTitle)+" "+normalize(notes)).toLowerCase();
+
+  if(t.includes("fotmob") || t.includes("fotmob.com")) return true;
+  if(t.includes("⚽") || t.includes("サッカー") || t.includes("football") || t.includes("soccer")) return true;
+
+  const known=[
+    "manchester united","manchester city","liverpool","arsenal","chelsea","tottenham",
+    "real madrid","atlético madrid","atletico madrid","barcelona","bayern","dortmund",
+    "inter milan","ac milan","juventus","paris saint-germain","psg",
+    "japan","日本代表"
+  ];
+  return known.some(k=>t.includes(k));
+}
+
 function isAllDayLikeEvent(e){
   if(e.isAllDay) return true;
 
@@ -240,7 +255,8 @@ async function getUpcoming7(ann){
         source:"予定",
         kind:"予定",
         color:C.blue,
-        combat:isCombatEvent(title,calendarTitle)
+        combat:isCombatEvent(title,calendarTitle),
+        soccer:isSoccerEvent(title,calendarTitle,e.notes)
       });
     }
   }catch(_){}
@@ -281,8 +297,7 @@ function upcomingDayLabel(d){
 
 function futureIconName(it){
   if(it.source==="家族" || normalize(it.title).includes("誕生日")) return "gift.fill";
-  const t=normalize(it.title).toLowerCase();
-  if(t.includes("japan") || t.includes("uruguay") || t.includes("サッカー") || t.includes("football")) return "soccerball";
+  if(it.soccer) return "soccerball";
   return "calendar";
 }
 
@@ -304,7 +319,15 @@ const [W,eventsData,deadlineData]=await Promise.all([getWeather(position),getEve
 const ann=anniversary();
 const upcoming7=await getUpcoming7(ann);
 const nextCombat=upcoming7.find(x=>x.combat)||null;
-const visibleUpcoming=(nextCombat?upcoming7.filter(x=>x!==nextCombat).slice(0,4):upcoming7.slice(0,5));
+const nextSoccer=upcoming7.find(x=>x.soccer)||null;
+
+const featured=[];
+if(nextCombat) featured.push(nextCombat);
+if(nextSoccer && nextSoccer!==nextCombat) featured.push(nextSoccer);
+featured.sort((a,b)=>a.date-b.date);
+
+const featuredEvents=featured.slice(0,2);
+const visibleUpcoming=upcoming7.filter(x=>!featuredEvents.includes(x)).slice(0,Math.max(0,5-featuredEvents.length));
 const [weatherName,weatherIcon]=weatherInfo(W.code);
 
 const w=new ListWidget();
@@ -431,28 +454,52 @@ if(!upcoming7.length){
   fx=futureCard.addText("重要な予定はありません");
   fx.font=Font.systemFont(9);fx.textColor=C.sub;
 }else{
-  if(nextCombat){
-    const fight=futureCard.addStack();fight.layoutVertically();
-    fight.backgroundColor=new Color("#FEE2E2",0.70);
-    fight.cornerRadius=9;
-    fight.setPadding(5,7,5,7);
+  if(featuredEvents.length){
+    const featuredBox=futureCard.addStack();featuredBox.layoutVertically();
+    featuredBox.backgroundColor=new Color("#EEF2FF",0.78);
+    featuredBox.cornerRadius=9;
+    featuredBox.setPadding(6,7,6,7);
 
-    const top=fight.addStack();top.centerAlignContent();
-    let em=top.addText("🥊");em.font=Font.systemFont(11);
-    top.addSpacer(5);
-    let lab=top.addText("次の格闘技");lab.font=Font.boldSystemFont(9);lab.textColor=C.red;
-    top.addSpacer();
-    let rel=top.addText(relativeDay(nextCombat.date));rel.font=Font.boldSystemFont(8);rel.textColor=C.red;
+    const head=featuredBox.addStack();head.centerAlignContent();
+    let pin=head.addText("📌");pin.font=Font.systemFont(10);
+    head.addSpacer(5);
+    let label=head.addText("注目イベント");label.font=Font.boldSystemFont(9);label.textColor=C.purple;
 
-    fight.addSpacer(2);
-    const detail=fight.addStack();detail.centerAlignContent();
-    let dt=detail.addText(upcomingDayLabel(nextCombat.date));dt.font=Font.boldSystemFont(8);dt.textColor=C.red;
-    detail.addSpacer(6);
-    let ft=detail.addText(nextCombat.title);ft.font=Font.semiboldSystemFont(9);ft.textColor=C.text;ft.lineLimit=1;ft.minimumScaleFactor=0.78;
-    if(!nextCombat.allDay){
-      detail.addSpacer(5);
-      let tm=detail.addText(fmtTime(nextCombat.date,false));tm.font=Font.semiboldSystemFont(8);tm.textColor=C.sub;
-    }
+    featuredBox.addSpacer(3);
+
+    featuredEvents.forEach((it,i)=>{
+      const line=featuredBox.addStack();line.centerAlignContent();
+
+      let emoji=line.addText(it.combat?"🥊":"⚽");
+      emoji.font=Font.systemFont(10);
+      line.addSpacer(5);
+
+      let date=line.addText(upcomingDayLabel(it.date));
+      date.font=Font.boldSystemFont(8);
+      date.textColor=it.combat?C.red:C.blue;
+      line.addSpacer(6);
+
+      let title=line.addText(it.title);
+      title.font=Font.semiboldSystemFont(9);
+      title.textColor=C.text;
+      title.lineLimit=1;
+      title.minimumScaleFactor=0.78;
+
+      if(!it.allDay){
+        line.addSpacer(5);
+        let tm=line.addText(fmtTime(it.date,false));
+        tm.font=Font.semiboldSystemFont(8);
+        tm.textColor=C.sub;
+      }
+
+      line.addSpacer(5);
+      let rel=line.addText(relativeDay(it.date));
+      rel.font=Font.boldSystemFont(8);
+      rel.textColor=it.combat?C.red:C.blue;
+
+      if(i<featuredEvents.length-1) featuredBox.addSpacer(4);
+    });
+
     futureCard.addSpacer(6);
   }
 
