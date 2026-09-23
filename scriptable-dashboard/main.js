@@ -1,8 +1,8 @@
-// 俺専用ダッシュボード v1.20-github
+// 俺専用ダッシュボード v1.21-github
 // Remote main for Scriptable loader.
 // IMPORTANT: Script.complete() は loader 側で呼ぶ。
 
-const VERSION = "1.20-github";
+const VERSION = "1.21-github";
 
 const USER = globalThis.ORE_DASH_CONFIG || {};
 
@@ -219,13 +219,27 @@ function weatherInfo(code){
 
 async function getEvents(){
   try{
-    const now=new Date();const list=await CalendarEvent.today();
-    const items=list.filter(e=>isAllDayLikeEvent(e)||e.endDate>now).sort((a,b)=>{
-      const aa=isAllDayLikeEvent(a),bb=isAllDayLikeEvent(b);
-      if(aa&&!bb)return -1;
-      if(!aa&&bb)return 1;
-      return a.startDate-b.startDate;
-    }).slice(0,CFG.maxEvents);
+    const now=new Date();
+    const list=await CalendarEvent.today();
+    const seen=new Set();
+
+    const items=list
+      .filter(e=>!isHolidayCalendarTitle(calName(e)))
+      .filter(e=>isAllDayLikeEvent(e)||e.endDate>now)
+      .sort((a,b)=>{
+        const aa=isAllDayLikeEvent(a),bb=isAllDayLikeEvent(b);
+        if(aa&&!bb)return -1;
+        if(!aa&&bb)return 1;
+        return a.startDate-b.startDate;
+      })
+      .filter(e=>{
+        const key=normalize(e.title).toLowerCase()+"|"+new Date(e.startDate).getTime()+"|"+isAllDayLikeEvent(e);
+        if(seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      })
+      .slice(0,CFG.maxEvents);
+
     return {ok:true,items};
   }catch(_){return {ok:false,items:[]};}
 }
@@ -319,6 +333,29 @@ function isHolidayCalendarTitle(title){
   return t.includes("祝日") || t.includes("holiday");
 }
 
+function isCombatEvent(title,calendarTitle=""){
+  const t=(normalize(title)+" "+normalize(calendarTitle)).toLowerCase();
+  const patterns=[
+    /(^|\s|[^a-z0-9])ufc([^a-z0-9]|$)/,
+    /rizin/,
+    /(^|\s|[^a-z0-9])mma([^a-z0-9]|$)/,
+    /(^|\s|[^a-z0-9])pfl([^a-z0-9]|$)/,
+    /bellator/,
+    /(^|\s|[^a-z0-9])one([^a-z0-9]|$)/,
+    /k[- ]?1/,
+    /knock\s*out/,
+    /(^|\s|[^a-z0-9])rise([^a-z0-9]|$)/,
+    /prime\s*video\s*boxing/,
+    /boxing/,
+    /ボクシング/,
+    /格闘技/,
+    /修斗/,
+    /pancrase/,
+    /deep\s*\d|deep\s*jewels/
+  ];
+  return patterns.some(r=>r.test(t));
+}
+
 function isAllDayLikeEvent(e){
   if(e.isAllDay) return true;
 
@@ -366,7 +403,8 @@ async function getUpcoming7(universityItems,ann){
         allDay:isAllDayLikeEvent(e),
         source:"予定",
         kind:"予定",
-        color:C.blue
+        color:C.blue,
+        combat:isCombatEvent(title,calendarTitle)
       });
     }
   }catch(_){}
@@ -430,8 +468,7 @@ async function getUpcoming7(universityItems,ann){
       if(seen.has(k)) return false;
       seen.add(k);
       return true;
-    })
-    .slice(0,5);
+    });
 }
 
 function upcomingDayLabel(d){
@@ -482,6 +519,8 @@ const position=await getPosition();
 const [W,eventsData,tasksData,universityData,tideData]=await Promise.all([getWeather(position),getEvents(),getTasks(),getUniversityItems(),getTide()]);
 const ann=anniversary();
 const upcoming7=await getUpcoming7(universityData.items,ann);
+const nextCombat=upcoming7.find(x=>x.combat)||null;
+const visibleUpcoming=(nextCombat?upcoming7.filter(x=>x!==nextCombat).slice(0,4):upcoming7.slice(0,5));
 const [weatherName,weatherIcon]=weatherInfo(W.code);
 
 const w=new ListWidget();
@@ -584,7 +623,32 @@ if(!upcoming7.length){
   fx=futureCard.addText("重要な予定はありません");
   fx.font=Font.systemFont(9);fx.textColor=C.sub;
 }else{
-  upcoming7.forEach((it,i)=>{
+  if(nextCombat){
+    const fight=futureCard.addStack();fight.layoutVertically();
+    fight.backgroundColor=new Color("#FEE2E2",0.70);
+    fight.cornerRadius=9;
+    fight.setPadding(5,7,5,7);
+
+    const top=fight.addStack();top.centerAlignContent();
+    let em=top.addText("🥊");em.font=Font.systemFont(11);
+    top.addSpacer(5);
+    let lab=top.addText("次の格闘技");lab.font=Font.boldSystemFont(9);lab.textColor=C.red;
+    top.addSpacer();
+    let rel=top.addText(relativeDay(nextCombat.date));rel.font=Font.boldSystemFont(8);rel.textColor=C.red;
+
+    fight.addSpacer(2);
+    const detail=fight.addStack();detail.centerAlignContent();
+    let dt=detail.addText(upcomingDayLabel(nextCombat.date));dt.font=Font.boldSystemFont(8);dt.textColor=C.red;
+    detail.addSpacer(6);
+    let ft=detail.addText(nextCombat.title);ft.font=Font.semiboldSystemFont(9);ft.textColor=C.text;ft.lineLimit=1;ft.minimumScaleFactor=0.78;
+    if(!nextCombat.allDay){
+      detail.addSpacer(5);
+      let tm=detail.addText(fmtTime(nextCombat.date,false));tm.font=Font.semiboldSystemFont(8);tm.textColor=C.sub;
+    }
+    futureCard.addSpacer(6);
+  }
+
+  visibleUpcoming.forEach((it,i)=>{
     const line=futureCard.addStack();line.centerAlignContent();
 
     icon(line,futureIconName(it),futureIconColor(it),9);
@@ -608,7 +672,7 @@ if(!upcoming7.length){
       tm.textColor=C.sub;
     }
 
-    if(i<upcoming7.length-1) futureCard.addSpacer(7);
+    if(i<visibleUpcoming.length-1) futureCard.addSpacer(7);
   });
 
 }
