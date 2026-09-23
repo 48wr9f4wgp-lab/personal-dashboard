@@ -1,8 +1,8 @@
-// 俺専用ダッシュボード v1.22-github
+// 俺専用ダッシュボード v1.23-github
 // Remote main for Scriptable loader.
 // IMPORTANT: Script.complete() は loader 側で呼ぶ。
 
-const VERSION = "1.22-github";
+const VERSION = "1.23-github";
 
 const USER = globalThis.ORE_DASH_CONFIG || {};
 
@@ -37,13 +37,6 @@ const C = {
   card:new Color("#FFFFFF",0.82), weakCard:new Color("#FFFFFF",0.64)
 };
 
-const TIDE = {
-  station:"G9",
-  stationName:"石廊崎",
-  sourceLabel:"気象庁予測"
-};
-
-
 function icon(stack,name,color,size=12){const sf=SFSymbol.named(name);sf.applyFont(Font.systemFont(size));const i=stack.addImage(sf.image);i.imageSize=new Size(size,size);i.tintColor=color;return i;}
 function normalize(v){return v?String(v).replace(/\s+/g," ").trim():"";}
 function shorten(v,n){v=normalize(v);return v.length<=n?v:v.slice(0,n-1)+"…";}
@@ -59,132 +52,6 @@ function realEventEnd(e){const d=new Date(e.endDate);if(e.isAllDay)d.setMillisec
 function calName(x){return x.calendar&&x.calendar.title?normalize(x.calendar.title):"";}
 function mkCard(p){const c=p.addStack();c.layoutVertically();c.backgroundColor=C.card;c.cornerRadius=14;c.setPadding(10,11,10,11);return c;}
 function section(p,symbol,title,color){const r=p.addStack();r.centerAlignContent();icon(r,symbol,color,12);r.addSpacer(5);const t=r.addText(title);t.font=Font.boldSystemFont(12);t.textColor=C.text;return r;}
-
-function htmlText(v){
-  return String(v||"")
-    .replace(/<script\b[\s\S]*?<\/script>/gi,"")
-    .replace(/<style\b[\s\S]*?<\/style>/gi,"")
-    .replace(/<[^>]+>/g," ")
-    .replace(/&nbsp;|&#160;/gi," ")
-    .replace(/&amp;/gi,"&")
-    .replace(/&lt;/gi,"<")
-    .replace(/&gt;/gi,">")
-    .replace(/&quot;/gi,'"')
-    .replace(/&#39;/gi,"'")
-    .replace(/\s+/g," ")
-    .trim();
-}
-
-function tideRowCells(html,dateKey){
-  const rows=String(html||"").match(/<tr\b[\s\S]*?<\/tr>/gi)||[];
-  const row=rows.find(r=>htmlText(r).includes(dateKey));
-  if(!row) return null;
-  const cells=[];
-  const re=/<t[dh]\b[^>]*>([\s\S]*?)<\/t[dh]>/gi;
-  let m;
-  while((m=re.exec(row))!==null) cells.push(htmlText(m[1]));
-  return cells;
-}
-
-function tidePairs(cells,startIndex,endIndex){
-  const out=[];
-  for(let i=startIndex;i+1<=endIndex;i+=2){
-    const time=(cells[i]||"").trim();
-    const level=(cells[i+1]||"").trim();
-    if(/^\d{1,2}:\d{2}$/.test(time) && /^-?\d+$/.test(level)){
-      out.push({time,level:Number(level)});
-    }
-  }
-  return out;
-}
-
-function tideDateKey(d){
-  return d.getFullYear()+"/"+String(d.getMonth()+1).padStart(2,"0")+"/"+String(d.getDate()).padStart(2,"0");
-}
-
-function tideEventDate(base,time){
-  const p=time.split(":").map(Number);
-  return new Date(base.getFullYear(),base.getMonth(),base.getDate(),p[0],p[1],0,0);
-}
-
-async function getTide(){
-  try{
-    const now=new Date();
-    const tomorrow=addDays(dayStart(now),1);
-
-    const y1=now.getFullYear(),m1=String(now.getMonth()+1).padStart(2,"0"),d1=String(now.getDate()).padStart(2,"0");
-    const y2=tomorrow.getFullYear(),m2=String(tomorrow.getMonth()+1).padStart(2,"0"),d2=String(tomorrow.getDate()).padStart(2,"0");
-
-    const url=
-      "https://www.data.jma.go.jp/kaiyou/db/tide/suisan/suisan.php"+
-      "?LV=DL&S_HILO=on"+
-      "&stn="+encodeURIComponent(TIDE.station)+
-      "&ys="+y1+"&ms="+m1+"&ds="+d1+
-      "&ye="+y2+"&me="+m2+"&de="+d2;
-
-    const req=new Request(url);
-    req.timeoutInterval=12;
-    const html=await req.loadString();
-
-    const days=[dayStart(now),tomorrow];
-    const events=[];
-
-    for(const base of days){
-      const cells=tideRowCells(html,tideDateKey(base));
-      if(!cells || cells.length<12) continue;
-
-      const highs=tidePairs(cells,2,9);
-      const lows=tidePairs(cells,10,17);
-
-      for(const x of highs) events.push({kind:"満",time:x.time,level:x.level,date:tideEventDate(base,x.time)});
-      for(const x of lows) events.push({kind:"干",time:x.time,level:x.level,date:tideEventDate(base,x.time)});
-    }
-
-    events.sort((a,b)=>a.date-b.date);
-    if(!events.length) throw new Error("満干潮データなし");
-
-    return {
-      ok:true,
-      station:TIDE.stationName,
-      source:TIDE.sourceLabel,
-      events,
-      url
-    };
-  }catch(e){
-    return {
-      ok:false,
-      station:TIDE.stationName,
-      source:TIDE.sourceLabel,
-      events:[],
-      error:String(e)
-    };
-  }
-}
-
-function tideCompact(data){
-  if(!data.ok) return "潮汐 取得失敗";
-
-  const now=new Date();
-  const upcoming=data.events.filter(x=>x.date>=now).slice(0,2);
-  if(!upcoming.length) return "本日の潮変化終了";
-
-  return upcoming.map((x,i)=>{
-    const tomorrow=dayStart(x.date)>dayStart(now);
-    const prefix=i===0?"次 ":"→ ";
-    return prefix+(tomorrow?"明日 ":"")+x.kind+x.time;
-  }).join(" ");
-}
-
-function tideHeader(data){
-  if(!data.ok) return TIDE.stationName+" 潮汐取得失敗";
-  const now=new Date();
-  const upcoming=data.events.filter(x=>x.date>=now).slice(0,2);
-  if(!upcoming.length) return TIDE.stationName+" 本日終了";
-  const firstTomorrow=dayStart(upcoming[0].date)>dayStart(now);
-  let out=TIDE.stationName+" "+(firstTomorrow?"明日 ":"")+"次 "+upcoming[0].kind+upcoming[0].time;
-  if(upcoming[1]) out+=" → "+upcoming[1].kind+upcoming[1].time;
-  return out;
-}
 
 async function getPosition(){
   try{
@@ -510,7 +377,7 @@ function anniversary(){
 
 const fetchedAt=new Date();
 const position=await getPosition();
-const [W,eventsData,universityData,tideData]=await Promise.all([getWeather(position),getEvents(),getUniversityItems(),getTide()]);
+const [W,eventsData,universityData]=await Promise.all([getWeather(position),getEvents(),getUniversityItems()]);
 const ann=anniversary();
 const upcoming7=await getUpcoming7(universityData.items,ann);
 const nextCombat=upcoming7.find(x=>x.combat)||null;
@@ -536,10 +403,6 @@ if(W.ok){
   weatherBox.addSpacer(1);
   const weatherMeta=weatherBox.addStack();weatherMeta.centerAlignContent();
   t=weatherMeta.addText("↑"+W.max+"°  ↓"+W.min+"°  降水"+W.rain+"%");t.font=Font.systemFont(9);t.textColor=C.sub;
-  weatherBox.addSpacer(1);
-  const tideMeta=weatherBox.addStack();tideMeta.centerAlignContent();
-  icon(tideMeta,"fish.fill",tideData.ok?C.blue:C.gray,8);tideMeta.addSpacer(3);
-  t=tideMeta.addText(tideHeader(tideData));t.font=Font.systemFont(8);t.textColor=tideData.ok?C.blue:C.gray;t.lineLimit=1;t.minimumScaleFactor=0.72;
   weatherBox.addSpacer(1);
   const liveMeta=weatherBox.addStack();liveMeta.centerAlignContent();
   t=liveMeta.addText("●");t.font=Font.systemFont(7);t.textColor=C.green;liveMeta.addSpacer(3);
