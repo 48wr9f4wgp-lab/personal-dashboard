@@ -1,8 +1,8 @@
-// 俺専用ダッシュボード v1.35-github
+// 俺専用ダッシュボード v1.36-github
 // Remote main for Scriptable loader.
 // IMPORTANT: Script.complete() は loader 側で呼ぶ。
 
-const VERSION = "1.35-github";
+const VERSION = "1.36-github";
 
 const USER = globalThis.ORE_DASH_CONFIG || {};
 
@@ -351,9 +351,23 @@ function compactUpcomingTitle(it){
 
   if(it.combat){
     v=v.split(/[|｜]/)[0].trim();
+
+    const compactPatterns=[
+      /^(PRIME VIDEO BOXING\s*\d+)/i,
+      /^(RIZIN LANDMARK\s*\d+)/i,
+      /^(RIZIN\.\d+)/i,
+      /^(UFC\s*\d+)/i,
+      /^(ONE SAMURAI\s*\d+)/i,
+      /^(RISE\s*\d+)/i,
+      /^(K-1 WORLD MAX\s*\d*\s*FINAL\d*)/i
+    ];
+    for(const p of compactPatterns){
+      const m=v.match(p);
+      if(m){v=m[1].trim();break;}
+    }
   }
 
-  return shorten(v,26);
+  return shorten(v,28);
 }
 
 function combatEmoji(it){
@@ -442,22 +456,23 @@ w.addSpacer(2);
 // ROW1 unified schedule timeline
 const scheduleCard=mkCard(w);
 scheduleCard.size=new Size(329,0);
-scheduleCard.setPadding(7,12,7,12);
+scheduleCard.setPadding(9,12,9,12);
 
 const sh=section(scheduleCard,"calendar","予定",C.blue);
 sh.addSpacer();
 
 const schedulePartial=!eventsData.ok || !upcomingData.ok;
-let scheduleStatus;
-if(schedulePartial) scheduleStatus="一部取得失敗";
-else if(scheduleRows.length) scheduleStatus=scheduleRows.length+"件";
-else scheduleStatus="予定なし";
+const scheduleStatus=schedulePartial
+  ?"一部取得失敗"
+  :(hiddenToday>0?"今日ほか"+hiddenToday+"件":(!scheduleRows.length?"予定なし":""));
 
-let st=sh.addText(scheduleStatus);
-st.font=Font.systemFont(8);
-st.textColor=schedulePartial?C.orange:C.gray;
+if(scheduleStatus){
+  let st=sh.addText(scheduleStatus);
+  st.font=Font.systemFont(8);
+  st.textColor=schedulePartial?C.orange:C.gray;
+}
 
-scheduleCard.addSpacer(5);
+scheduleCard.addSpacer(6);
 
 if(!scheduleRows.length){
   let empty=scheduleCard.addText(schedulePartial?"予定を取得できません":"予定はありません");
@@ -497,24 +512,25 @@ if(!scheduleRows.length){
     title.textColor=C.text;
     title.lineLimit=1;
 
-    if(i<scheduleRows.length-1) scheduleCard.addSpacer(5);
+    if(i<scheduleRows.length-1) scheduleCard.addSpacer(7);
   });
 
-  if(hiddenToday>0){
-    scheduleCard.addSpacer(4);
-    const more=scheduleCard.addStack();more.centerAlignContent();more.addSpacer();
-    let mt=more.addText("今日ほか"+hiddenToday+"件");
-    mt.font=Font.systemFont(8);mt.textColor=C.gray;
-  }
 }
-w.addSpacer(2);
+w.addSpacer(4);
 
 // ROW2 important deadlines
 const deadlineCard=mkCard(w);
 deadlineCard.size=new Size(329,0);
-deadlineCard.setPadding(7,12,7,12);
-section(deadlineCard,"exclamationmark.triangle.fill","重要期限",C.red);
-deadlineCard.addSpacer(4);
+deadlineCard.setPadding(9,12,9,12);
+const extraDeadlineCount=deadlineData.ok?Math.max(0,deadlineData.items.length-2):0;
+const dh=section(deadlineCard,"exclamationmark.triangle.fill","重要期限",C.red);
+if(extraDeadlineCount>0){
+  dh.addSpacer();
+  let more=dh.addText("ほかあり");
+  more.font=Font.systemFont(8);
+  more.textColor=C.gray;
+}
+deadlineCard.addSpacer(6);
 
 if(!deadlineData.ok){
   t=deadlineCard.addText("取得失敗");
@@ -524,8 +540,6 @@ if(!deadlineData.ok){
   t.font=Font.mediumSystemFont(11);t.textColor=C.sub;
 }else{
   const shownDeadlines=deadlineData.items.slice(0,2);
-  const extraDeadlines=Math.max(0,deadlineData.items.length-shownDeadlines.length);
-
   shownDeadlines.forEach((it,i)=>{
     const urgency=deadlineColor(it.date);
 
@@ -549,16 +563,9 @@ if(!deadlineData.ok){
     title.textColor=C.text;
     title.lineLimit=1;
 
-    if(i<shownDeadlines.length-1)deadlineCard.addSpacer(5);
+    if(i<shownDeadlines.length-1)deadlineCard.addSpacer(8);
   });
 
-  if(extraDeadlines>0){
-    deadlineCard.addSpacer(3);
-    const more=deadlineCard.addStack();more.centerAlignContent();more.addSpacer();
-    let plus=more.addText("ほかにも期限あり");
-    plus.font=Font.systemFont(8);
-    plus.textColor=C.gray;
-  }
 }
 w.addSpacer(2);
 
