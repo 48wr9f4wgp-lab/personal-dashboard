@@ -1,8 +1,8 @@
-// 俺専用ダッシュボード v1.46-github
+// 俺専用ダッシュボード v1.47-github
 // Remote main for Scriptable loader.
 // IMPORTANT: Script.complete() は loader 側で呼ぶ。
 
-const VERSION = "1.46-github";
+const VERSION = "1.47-github";
 
 const USER = globalThis.ORE_DASH_CONFIG || {};
 
@@ -42,6 +42,12 @@ function shorten(v,n){v=normalize(v);return v.length<=n?v:v.slice(0,n-1)+"…";}
 function any(text,keys){text=normalize(text);return keys.some(k=>text.includes(k));}
 function fmtTime(d,allDay=false){if(allDay)return "終日";const f=new DateFormatter();f.dateFormat="HH:mm";return f.string(d);}
 function fmtDate(d){const f=new DateFormatter();f.locale="ja_JP";f.dateFormat="M/d";return f.string(d);}
+function forecastDayLabel(iso){
+  const p=String(iso||"").split("-").map(Number);
+  if(p.length!==3 || p.some(Number.isNaN)) return "";
+  const d=new Date(p[0],p[1]-1,p[2]);
+  return p[2]+["日","月","火","水","木","金","土"][d.getDay()];
+}
 function todayText(){const f=new DateFormatter();f.locale="ja_JP";f.dateFormat="M月d日 EEE";return f.string(new Date());}
 function dayStart(d){return new Date(d.getFullYear(),d.getMonth(),d.getDate());}
 function sameCalendarDay(a,b){return !!a&&!!b&&dayStart(a).getTime()===dayStart(b).getTime();}
@@ -65,10 +71,29 @@ async function getPosition(){
 
 async function getWeather(pos){
   try{
-    const u="https://api.open-meteo.com/v1/forecast?latitude="+pos.lat+"&longitude="+pos.lon+"&current=temperature_2m,weather_code&daily=temperature_2m_max,temperature_2m_min,precipitation_probability_max&timezone=auto&forecast_days=1";
+    const u="https://api.open-meteo.com/v1/forecast?latitude="+pos.lat+"&longitude="+pos.lon+"&current=temperature_2m,weather_code&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max&timezone=auto&forecast_days=4";
     const r=new Request(u);r.timeoutInterval=10;const j=await r.loadJSON();
-    return {ok:true,temp:Math.round(j.current.temperature_2m),code:j.current.weather_code,max:Math.round(j.daily.temperature_2m_max[0]),min:Math.round(j.daily.temperature_2m_min[0]),rain:Math.round(j.daily.precipitation_probability_max[0])};
-  }catch(_){return {ok:false,temp:null,code:-1,max:null,min:null,rain:null};}
+
+    const daily=(j.daily.time||[]).map((date,i)=>({
+      date,
+      code:j.daily.weather_code[i],
+      max:Math.round(j.daily.temperature_2m_max[i]),
+      min:Math.round(j.daily.temperature_2m_min[i]),
+      rain:Math.round(j.daily.precipitation_probability_max[i])
+    }));
+
+    return {
+      ok:true,
+      temp:Math.round(j.current.temperature_2m),
+      code:j.current.weather_code,
+      max:daily[0]?daily[0].max:null,
+      min:daily[0]?daily[0].min:null,
+      rain:daily[0]?daily[0].rain:null,
+      daily
+    };
+  }catch(_){
+    return {ok:false,temp:null,code:-1,max:null,min:null,rain:null,daily:[]};
+  }
 }
 
 function weatherInfo(code){
@@ -495,21 +520,50 @@ if(config.widgetFamily==="medium"){
     const mwm=mr.addStack();
     mwm.centerAlignContent();
     mt=mwm.addText("↑"+W.max+"° ↓"+W.min+"° 降水"+W.rain+"%");
-    mt.font=Font.mediumSystemFont(9);
+    mt.font=Font.mediumSystemFont(8);
     mt.textColor=C.sub;
+
+    const future=(W.daily||[]).slice(1,4);
+    if(future.length){
+      mr.addSpacer(2);
+      const fr=mr.addStack();
+      fr.centerAlignContent();
+
+      future.forEach((d,i)=>{
+        const cell=fr.addStack();
+        cell.centerAlignContent();
+
+        let x=cell.addText(forecastDayLabel(d.date));
+        x.font=Font.semiboldSystemFont(7);
+        x.textColor=C.sub;
+
+        cell.addSpacer(2);
+
+        const [,fi]=weatherInfo(d.code);
+        icon(cell,fi,C.blue,8);
+
+        cell.addSpacer(2);
+
+        x=cell.addText(d.max+"/"+d.min);
+        x.font=Font.mediumSystemFont(7);
+        x.textColor=C.sub;
+
+        if(i<future.length-1) fr.addSpacer(6);
+      });
+    }
   }else{
     mt=mh.addText("天気取得失敗");
     mt.font=Font.semiboldSystemFont(9);
     mt.textColor=C.red;
   }
 
-  mw.addSpacer(5);
+  mw.addSpacer(3);
 
   const mc=mw.addStack();
   mc.layoutVertically();
   mc.backgroundColor=C.card;
   mc.cornerRadius=14;
-  mc.setPadding(7,9,7,9);
+  mc.setPadding(6,9,6,9);
 
   const mch=mc.addStack();
   mch.centerAlignContent();
@@ -569,7 +623,7 @@ if(config.widgetFamily==="medium"){
     x.textColor=C.text;
     x.lineLimit=1;
 
-    if(i<mediumScheduleRows.length-1) mc.addSpacer(4);
+    if(i<mediumScheduleRows.length-1) mc.addSpacer(3);
   });
 
   if(mediumDeadline){
