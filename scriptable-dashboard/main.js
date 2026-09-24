@@ -1,8 +1,8 @@
-// 俺専用ダッシュボード v1.29-github
+// 俺専用ダッシュボード v1.30-github
 // Remote main for Scriptable loader.
 // IMPORTANT: Script.complete() は loader 側で呼ぶ。
 
-const VERSION = "1.29-github";
+const VERSION = "1.30-github";
 
 const USER = globalThis.ORE_DASH_CONFIG || {};
 
@@ -303,7 +303,9 @@ function deadlineColor(date){
 
 function compactUpcomingTitle(it){
   let v=normalize(it.title)
-    .replace(/^[🥊🥋⚽]\s*/,"");
+    .replace(/[\uFE0E\uFE0F\uFFFD]/g,"")
+    .replace(/^[🥊🥋⚽]\s*/,"")
+    .trim();
 
   if(it.combat){
     v=v.split(/[|｜]/)[0].trim();
@@ -350,10 +352,8 @@ if(nextSoccer && nextSoccer!==nextCombat) featured.push(nextSoccer);
 featured.sort((a,b)=>a.date-b.date);
 
 const featuredEvents=featured.slice(0,2);
-const displayUpcoming=[
-  ...featuredEvents,
-  ...upcoming7.filter(x=>!featuredEvents.includes(x))
-].slice(0,4);
+// 表示順は常に時系列。注目は太字・色だけで示す。
+const displayUpcoming=upcoming7.slice(0,4);
 const [weatherName,weatherIcon]=weatherInfo(W.code);
 
 const w=new ListWidget();
@@ -476,8 +476,8 @@ if(!deadlineData.ok){
   if(extraDeadlines>0){
     deadlineCard.addSpacer(6);
     const more=deadlineCard.addStack();more.centerAlignContent();more.addSpacer();
-    let plus=more.addText("＋"+extraDeadlines+"件");
-    plus.font=Font.semiboldSystemFont(9);
+    let plus=more.addText("ほかにも期限あり");
+    plus.font=Font.systemFont(8);
     plus.textColor=C.gray;
   }
 }
