@@ -1,8 +1,8 @@
-// 俺専用ダッシュボード v1.42-github
+// 俺専用ダッシュボード v1.43-github
 // Remote main for Scriptable loader.
 // IMPORTANT: Script.complete() は loader 側で呼ぶ。
 
-const VERSION = "1.42-github";
+const VERSION = "1.43-github";
 
 const USER = globalThis.ORE_DASH_CONFIG || {};
 
@@ -546,12 +546,13 @@ w.addSpacer(6);
 // ROW2 important deadlines
 const deadlineCard=mkCard(w);
 deadlineCard.size=new Size(329,0);
-deadlineCard.setPadding(9,12,9,12);
+deadlineCard.setPadding(10,12,10,12);
+
 const dh=deadlineCard.addStack();dh.centerAlignContent();
 let dht=dh.addText("重要期限");
 dht.font=Font.boldSystemFont(13);
 dht.textColor=C.text;
-deadlineCard.addSpacer(6);
+deadlineCard.addSpacer(7);
 
 if(!deadlineData.ok){
   t=deadlineCard.addText("取得失敗");
@@ -562,33 +563,32 @@ if(!deadlineData.ok){
 }else{
   shownDeadlines.forEach((it,i)=>{
     const urgency=deadlineColor(it.date);
-    const line=deadlineCard.addStack();line.centerAlignContent();
 
-    let dot=line.addText("●");
+    const meta=deadlineCard.addStack();meta.centerAlignContent();
+
+    let dot=meta.addText("●");
     dot.font=Font.systemFont(9);
     dot.textColor=urgency;
-    line.addSpacer(5);
+    meta.addSpacer(6);
 
-    const dateBox=line.addStack();
-    dateBox.size=new Size(37,0);
-    let date=dateBox.addText(fmtDate(it.date));
+    let date=meta.addText(fmtDate(it.date));
     date.font=Font.boldSystemFont(11);
     date.textColor=C.text;
 
-    line.addSpacer(5);
+    meta.addSpacer();
 
-    let title=line.addText(shorten(it.title,26));
-    title.font=Font.mediumSystemFont(11);
-    title.textColor=C.text;
-    title.lineLimit=1;
-
-    line.addSpacer();
-
-    let rel=line.addText(relativeDay(it.date));
+    let rel=meta.addText(relativeDay(it.date));
     rel.font=Font.boldSystemFont(10);
     rel.textColor=urgency;
 
-    if(i<shownDeadlines.length-1) deadlineCard.addSpacer(6);
+    deadlineCard.addSpacer(2);
+
+    let title=deadlineCard.addText(it.title);
+    title.font=Font.mediumSystemFont(11);
+    title.textColor=C.text;
+    title.lineLimit=2;
+
+    if(i<shownDeadlines.length-1) deadlineCard.addSpacer(9);
   });
 }
 w.addSpacer(2);
