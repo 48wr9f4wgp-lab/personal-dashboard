@@ -1,8 +1,8 @@
-// 俺専用ダッシュボード v1.36-github
+// 俺専用ダッシュボード v1.37-github
 // Remote main for Scriptable loader.
 // IMPORTANT: Script.complete() は loader 側で呼ぶ。
 
-const VERSION = "1.36-github";
+const VERSION = "1.37-github";
 
 const USER = globalThis.ORE_DASH_CONFIG || {};
 
@@ -36,6 +36,7 @@ function fmtTime(d,allDay=false){if(allDay)return "終日";const f=new DateForma
 function fmtDate(d){const f=new DateFormatter();f.locale="ja_JP";f.dateFormat="M/d";return f.string(d);}
 function todayText(){const f=new DateFormatter();f.locale="ja_JP";f.dateFormat="M月d日 EEE";return f.string(new Date());}
 function dayStart(d){return new Date(d.getFullYear(),d.getMonth(),d.getDate());}
+function sameCalendarDay(a,b){return !!a&&!!b&&dayStart(a).getTime()===dayStart(b).getTime();}
 function addDays(d,n){const x=new Date(d);x.setDate(x.getDate()+n);return x;}
 function daysBetween(a,b){return Math.round((dayStart(b)-dayStart(a))/86400000);}
 function relativeDay(d){const n=daysBetween(new Date(),d);if(n<0)return Math.abs(n)+"日超過";if(n===0)return "今日";if(n===1)return "明日";return "あと"+n+"日";}
@@ -425,7 +426,7 @@ const hiddenToday=Math.max(0,(eventsData.total||0)-todaySchedule.length);
 const [weatherName,weatherIcon]=weatherInfo(W.code);
 
 const w=new ListWidget();
-w.setPadding(9,14,12,14);
+w.setPadding(9,14,14,14);
 const bg=new LinearGradient();bg.colors=[new Color("#D8ECFF"),new Color("#EEF7FF"),new Color("#FFFFFF")];bg.locations=[0,0.55,1];w.backgroundGradient=bg;
 
 // HEADER
@@ -456,7 +457,7 @@ w.addSpacer(2);
 // ROW1 unified schedule timeline
 const scheduleCard=mkCard(w);
 scheduleCard.size=new Size(329,0);
-scheduleCard.setPadding(9,12,9,12);
+scheduleCard.setPadding(10,12,10,12);
 
 const sh=section(scheduleCard,"calendar","予定",C.blue);
 sh.addSpacer();
@@ -472,7 +473,7 @@ if(scheduleStatus){
   st.textColor=schedulePartial?C.orange:C.gray;
 }
 
-scheduleCard.addSpacer(6);
+scheduleCard.addSpacer(7);
 
 if(!scheduleRows.length){
   let empty=scheduleCard.addText(schedulePartial?"予定を取得できません":"予定はありません");
@@ -481,28 +482,35 @@ if(!scheduleRows.length){
 }else{
   scheduleRows.forEach((it,i)=>{
     const line=scheduleCard.addStack();line.centerAlignContent();
+    const prev=i>0?scheduleRows[i-1]:null;
+    const repeatDay=prev&&sameCalendarDay(prev.date,it.date);
 
+    // Same-day rows are visually grouped: show the date only on the first row.
     const dayBox=line.addStack();
     dayBox.size=new Size(38,0);
-    let day=dayBox.addText(it.today?"今日":fmtDate(it.date));
+    let day=dayBox.addText(repeatDay?"":(it.today?"今日":fmtDate(it.date)));
     day.font=Font.boldSystemFont(10);
     day.textColor=it.today?C.blue:C.text;
 
     line.addSpacer(4);
 
     const timeBox=line.addStack();
-    timeBox.size=new Size(40,0);
+    timeBox.size=new Size(42,0);
     let time=timeBox.addText(fmtTime(it.date,it.allDay));
     time.font=Font.semiboldSystemFont(9);
     time.textColor=it.today?C.blue:C.sub;
 
     line.addSpacer(4);
 
+    // Fixed icon column keeps every title aligned.
+    const iconBox=line.addStack();
+    iconBox.size=new Size(18,0);
+    iconBox.centerAlignContent();
     if(it.combat){
-      let em=line.addText(combatEmoji(it));
+      let em=iconBox.addText(combatEmoji(it));
       em.font=Font.systemFont(10);
     }else{
-      icon(line,futureIconName(it),futureIconColor(it),9);
+      icon(iconBox,futureIconName(it),futureIconColor(it),9);
     }
 
     line.addSpacer(5);
@@ -512,16 +520,20 @@ if(!scheduleRows.length){
     title.textColor=C.text;
     title.lineLimit=1;
 
-    if(i<scheduleRows.length-1) scheduleCard.addSpacer(7);
+    if(i<scheduleRows.length-1){
+      const next=scheduleRows[i+1];
+      const endOfDayGroup=next&&!sameCalendarDay(it.date,next.date);
+      scheduleCard.addSpacer(endOfDayGroup?9:6);
+    }
   });
 
 }
-w.addSpacer(4);
+w.addSpacer(6);
 
 // ROW2 important deadlines
 const deadlineCard=mkCard(w);
 deadlineCard.size=new Size(329,0);
-deadlineCard.setPadding(9,12,9,12);
+deadlineCard.setPadding(10,12,10,12);
 const extraDeadlineCount=deadlineData.ok?Math.max(0,deadlineData.items.length-2):0;
 const dh=section(deadlineCard,"exclamationmark.triangle.fill","重要期限",C.red);
 if(extraDeadlineCount>0){
@@ -530,7 +542,7 @@ if(extraDeadlineCount>0){
   more.font=Font.systemFont(8);
   more.textColor=C.gray;
 }
-deadlineCard.addSpacer(6);
+deadlineCard.addSpacer(7);
 
 if(!deadlineData.ok){
   t=deadlineCard.addText("取得失敗");
@@ -563,7 +575,7 @@ if(!deadlineData.ok){
     title.textColor=C.text;
     title.lineLimit=1;
 
-    if(i<shownDeadlines.length-1)deadlineCard.addSpacer(8);
+    if(i<shownDeadlines.length-1)deadlineCard.addSpacer(9);
   });
 
 }
