@@ -1,8 +1,8 @@
-// 俺専用ダッシュボード v1.51-github
+// 俺専用ダッシュボード v1.52-github
 // Remote main for Scriptable loader.
 // IMPORTANT: Script.complete() は loader 側で呼ぶ。
 
-const VERSION = "1.51-github";
+const VERSION = "1.52-github";
 
 const USER = globalThis.ORE_DASH_CONFIG || {};
 const RUN_NOW = new Date();
@@ -489,8 +489,8 @@ function mediumMetrics(){
   try{screenWidth=Math.min(Device.screenSize().width,Device.screenSize().height);}catch(_){}
   const compact=screenWidth<=320||CFG.mediumCompact===true;
   const width=screenWidth<=320?272:screenWidth<=375?301:screenWidth<=414?318:344;
-  return {width,compact,top:5,bottom:5,header:44,gap:2,cardPad:4,
-    heading:compact?0:13,headingGap:compact?0:1,row:15,divider:2,
+  return {width,compact,top:4,bottom:5,header:44,gap:2,cardPad:4,
+    heading:compact?0:13,headingGap:compact?0:1,row:15,divider:3,
     forecastWidth:146,dayWidth:32,timeWidth:38,iconWidth:14,columnGap:3};
 }
 function singleText(parent,value,font,color){
@@ -563,6 +563,7 @@ if(resolveFamily()==="medium"){
   const rowCount=Math.max(1,mediumRows.length);
   const bodyHeight=M.cardPad*2+M.heading+M.headingGap+rowCount*M.row+(footerNeeded?M.divider+M.row:0);
   const budget=M.top+M.header+M.gap+bodyHeight+M.bottom;
+  if(M.divider!==3)throw new Error("Medium divider geometry mismatch");
   if(budget>(M.compact?141:155))throw new Error("Medium layout budget exceeded");
 
   const mw=new ListWidget();mw.setPadding(M.top,10,M.bottom,10);mw.backgroundColor=C.bg;
@@ -598,7 +599,7 @@ if(resolveFamily()==="medium"){
     // Stack text alignment requires spacers, identically on all three lines.
     centeredRow(cell,46,12,row=>singleText(row,forecastDayLabel(day.date),Font.semiboldSystemFont(10),C.sub));
     cell.addSpacer(1);
-    centeredRow(cell,46,13,row=>icon(row,weatherInfo(day.code)[1],C.blue,14));
+    centeredRow(cell,46,14,row=>icon(row,weatherInfo(day.code)[1],C.blue,14));
     cell.addSpacer(1);
     centeredRow(cell,46,12,row=>{
       singleText(row,numberLabel(day.max),Font.semiboldSystemFont(10),C.red);
@@ -623,25 +624,41 @@ if(resolveFamily()==="medium"){
   // Shared columns apply to both schedule and deadline: when | time/type | content.
   function agendaRow(dayLabel,timeLabel,titleText,dayColor,timeColor,item){
     const row=fixedRow(card,contentWidth,M.row);row.url=calendarURL();
-    const d=fixedRow(row,M.dayWidth,M.row);singleText(d,dayLabel,Font.semiboldSystemFont(11),dayColor);
+
+    const d=fixedRow(row,M.dayWidth,M.row);
+    singleText(d,dayLabel,Font.semiboldSystemFont(11),dayColor);
+    d.addSpacer();
+
     row.addSpacer(M.columnGap);
-    const tm=fixedRow(row,M.timeWidth,M.row);singleText(tm,timeLabel,Font.semiboldSystemFont(11),timeColor);
+
+    const tm=fixedRow(row,M.timeWidth,M.row);
+    singleText(tm,timeLabel,Font.semiboldSystemFont(11),timeColor);
+    tm.addSpacer();
+
     row.addSpacer(M.columnGap);
+
     const ib=fixedRow(row,M.iconWidth,M.row);
     if(item){
+      ib.addSpacer();
       if(item.combat)singleText(ib,combatEmoji(item),Font.systemFont(10),C.sub);
       else icon(ib,futureIconName(item),C.sub,10);
-    }else ib.addSpacer();
+      ib.addSpacer();
+    }else{
+      ib.addSpacer();
+    }
+
     row.addSpacer(M.columnGap);
+
     const titleWidth=contentWidth-M.dayWidth-M.timeWidth-M.iconWidth-M.columnGap*3;
     const textBox=fixedRow(row,titleWidth,M.row);
     singleText(textBox,titleText,item&&(item.combat||item.soccer)?Font.semiboldSystemFont(11):Font.mediumSystemFont(11),C.text);
+    textBox.addSpacer();
   }
 
   if(!mediumRows.length){
     const empty=fixedRow(card,contentWidth,M.row);
     const failed=!eventsData.ok||!upcomingData.ok;
-    singleText(empty,failed?"予定を取得できません":"直近の予定なし",Font.mediumSystemFont(11),failed?C.orange:C.sub);
+    singleText(empty,failed?"予定を取得できません":"直近の予定なし",Font.mediumSystemFont(11),failed?C.orange:C.sub);empty.addSpacer();
   }else{
     mediumRows.forEach((item,i)=>{
       const repeated=i>0&&sameCalendarDay(mediumRows[i-1].date,item.date);
