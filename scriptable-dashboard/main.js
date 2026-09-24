@@ -1,8 +1,8 @@
-// 俺専用ダッシュボード v1.41-github
+// 俺専用ダッシュボード v1.42-github
 // Remote main for Scriptable loader.
 // IMPORTANT: Script.complete() は loader 側で呼ぶ。
 
-const VERSION = "1.41-github";
+const VERSION = "1.42-github";
 
 const USER = globalThis.ORE_DASH_CONFIG || {};
 
@@ -436,42 +436,42 @@ const shownDeadlines=actionableDeadlines.slice(0,CFG.deadlineMaxItems);
 const [weatherName,weatherIcon]=weatherInfo(W.code);
 
 const w=new ListWidget();
-w.setPadding(3,14,10,14);
+w.setPadding(5,14,12,14);
 w.backgroundColor=new Color("#F5F5F7");
 
 // HEADER
 const header=w.addStack();header.centerAlignContent();
 const left=header.addStack();left.layoutVertically();
-let t=left.addText(position.city);t.font=Font.boldSystemFont(17);t.textColor=C.text;
-t=left.addText(todayText());t.font=Font.mediumSystemFont(10);t.textColor=C.sub;
+let t=left.addText(position.city);t.font=Font.boldSystemFont(19);t.textColor=C.text;
+t=left.addText(todayText());t.font=Font.mediumSystemFont(11);t.textColor=C.sub;
 header.addSpacer();
 if(W.ok){
   const weatherBox=header.addStack();weatherBox.layoutVertically();
   const weatherTop=weatherBox.addStack();weatherTop.centerAlignContent();
-  t=weatherTop.addText(W.temp+"°");t.font=Font.boldSystemFont(28);t.textColor=C.text;weatherTop.addSpacer(6);
-  t=weatherTop.addText(weatherName);t.font=Font.semiboldSystemFont(11);t.textColor=C.sub;weatherTop.addSpacer(6);
-  icon(weatherTop,weatherIcon,C.blue,22);
+  t=weatherTop.addText(W.temp+"°");t.font=Font.boldSystemFont(31);t.textColor=C.text;weatherTop.addSpacer(7);
+  t=weatherTop.addText(weatherName);t.font=Font.semiboldSystemFont(12);t.textColor=C.sub;weatherTop.addSpacer(7);
+  icon(weatherTop,weatherIcon,C.blue,24);
   weatherBox.addSpacer(1);
   const weatherMeta=weatherBox.addStack();weatherMeta.centerAlignContent();
-  t=weatherMeta.addText("↑"+W.max+"°  ↓"+W.min+"°  今日降水"+W.rain+"%");t.font=Font.systemFont(9);t.textColor=C.sub;
+  t=weatherMeta.addText("↑"+W.max+"°  ↓"+W.min+"°  今日降水"+W.rain+"%");t.font=Font.mediumSystemFont(10);t.textColor=C.sub;
   weatherBox.addSpacer(1);
   const liveMeta=weatherBox.addStack();liveMeta.centerAlignContent();
   const dataHealthy=position.ok&&eventsData.ok&&deadlineData.ok&&upcomingData.ok;
-  t=liveMeta.addText("●");t.font=Font.systemFont(7);t.textColor=dataHealthy?C.green:C.orange;liveMeta.addSpacer(3);
+  t=liveMeta.addText("●");t.font=Font.systemFont(8);t.textColor=dataHealthy?C.green:C.orange;liveMeta.addSpacer(3);
   const stateLabel=!position.ok?"予備地点 ":(!dataHealthy?"一部取得失敗 ":"更新 ");
-  t=liveMeta.addText(stateLabel);t.font=Font.systemFont(7);t.textColor=dataHealthy?C.gray:C.orange;
-  const liveRel=liveMeta.addDate(fetchedAt);liveRel.applyRelativeStyle();liveRel.font=Font.systemFont(7);liveRel.textColor=C.gray;
+  t=liveMeta.addText(stateLabel);t.font=Font.systemFont(8);t.textColor=dataHealthy?C.gray:C.orange;
+  const liveRel=liveMeta.addDate(fetchedAt);liveRel.applyRelativeStyle();liveRel.font=Font.systemFont(8);liveRel.textColor=C.gray;
 }else{t=header.addText("天気取得失敗");t.font=Font.semiboldSystemFont(10);t.textColor=C.red;}
 w.addSpacer(2);
 
 // ROW1 unified schedule timeline
 const scheduleCard=mkCard(w);
 scheduleCard.size=new Size(329,0);
-scheduleCard.setPadding(7,12,7,12);
+scheduleCard.setPadding(9,12,9,12);
 
 const sh=scheduleCard.addStack();sh.centerAlignContent();
 let sht=sh.addText("予定");
-sht.font=Font.boldSystemFont(12);
+sht.font=Font.boldSystemFont(13);
 sht.textColor=C.text;
 sh.addSpacer();
 
@@ -486,7 +486,7 @@ if(scheduleStatus){
   st.textColor=schedulePartial?C.orange:C.gray;
 }
 
-scheduleCard.addSpacer(4);
+scheduleCard.addSpacer(6);
 
 if(!scheduleRows.length){
   let empty=scheduleCard.addText(schedulePartial?"予定を取得できません":"予定はありません");
@@ -502,7 +502,7 @@ if(!scheduleRows.length){
     const dayBox=line.addStack();
     dayBox.size=new Size(38,0);
     let day=dayBox.addText(repeatDay?"":(it.today?"今日":fmtDate(it.date)));
-    day.font=Font.boldSystemFont(10);
+    day.font=Font.boldSystemFont(11);
     day.textColor=it.today?C.blue:C.text;
 
     line.addSpacer(4);
@@ -510,7 +510,7 @@ if(!scheduleRows.length){
     const timeBox=line.addStack();
     timeBox.size=new Size(42,0);
     let time=timeBox.addText(fmtTime(it.date,it.allDay));
-    time.font=Font.semiboldSystemFont(9);
+    time.font=Font.semiboldSystemFont(10);
     time.textColor=it.today?C.blue:C.sub;
 
     line.addSpacer(4);
@@ -521,37 +521,37 @@ if(!scheduleRows.length){
     iconBox.centerAlignContent();
     if(it.combat){
       let em=iconBox.addText(combatEmoji(it));
-      em.font=Font.systemFont(10);
+      em.font=Font.systemFont(11);
     }else{
-      icon(iconBox,futureIconName(it),futureIconColor(it),9);
+      icon(iconBox,futureIconName(it),futureIconColor(it),10);
     }
 
     line.addSpacer(5);
 
     let title=line.addText(compactUpcomingTitle(it));
-    title.font=(it.combat||it.soccer)?Font.semiboldSystemFont(11):Font.mediumSystemFont(11);
+    title.font=(it.combat||it.soccer)?Font.semiboldSystemFont(12):Font.mediumSystemFont(12);
     title.textColor=C.text;
     title.lineLimit=1;
 
     if(i<scheduleRows.length-1){
       const next=scheduleRows[i+1];
       const endOfDayGroup=next&&!sameCalendarDay(it.date,next.date);
-      scheduleCard.addSpacer(endOfDayGroup?5:3);
+      scheduleCard.addSpacer(endOfDayGroup?7:4);
     }
   });
 
 }
-w.addSpacer(4);
+w.addSpacer(6);
 
 // ROW2 important deadlines
 const deadlineCard=mkCard(w);
 deadlineCard.size=new Size(329,0);
-deadlineCard.setPadding(7,12,7,12);
+deadlineCard.setPadding(9,12,9,12);
 const dh=deadlineCard.addStack();dh.centerAlignContent();
 let dht=dh.addText("重要期限");
-dht.font=Font.boldSystemFont(12);
+dht.font=Font.boldSystemFont(13);
 dht.textColor=C.text;
-deadlineCard.addSpacer(4);
+deadlineCard.addSpacer(6);
 
 if(!deadlineData.ok){
   t=deadlineCard.addText("取得失敗");
@@ -565,30 +565,30 @@ if(!deadlineData.ok){
     const line=deadlineCard.addStack();line.centerAlignContent();
 
     let dot=line.addText("●");
-    dot.font=Font.systemFont(8);
+    dot.font=Font.systemFont(9);
     dot.textColor=urgency;
     line.addSpacer(5);
 
     const dateBox=line.addStack();
     dateBox.size=new Size(37,0);
     let date=dateBox.addText(fmtDate(it.date));
-    date.font=Font.boldSystemFont(10);
+    date.font=Font.boldSystemFont(11);
     date.textColor=C.text;
 
     line.addSpacer(5);
 
     let title=line.addText(shorten(it.title,26));
-    title.font=Font.mediumSystemFont(10);
+    title.font=Font.mediumSystemFont(11);
     title.textColor=C.text;
     title.lineLimit=1;
 
     line.addSpacer();
 
     let rel=line.addText(relativeDay(it.date));
-    rel.font=Font.boldSystemFont(9);
+    rel.font=Font.boldSystemFont(10);
     rel.textColor=urgency;
 
-    if(i<shownDeadlines.length-1) deadlineCard.addSpacer(4);
+    if(i<shownDeadlines.length-1) deadlineCard.addSpacer(6);
   });
 }
 w.addSpacer(2);
