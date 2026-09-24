@@ -1,8 +1,8 @@
-// 俺専用ダッシュボード v1.40-github
+// 俺専用ダッシュボード v1.41-github
 // Remote main for Scriptable loader.
 // IMPORTANT: Script.complete() は loader 側で呼ぶ。
 
-const VERSION = "1.40-github";
+const VERSION = "1.41-github";
 
 const USER = globalThis.ORE_DASH_CONFIG || {};
 
@@ -10,9 +10,10 @@ const CFG = Object.assign({
   fallbackCity:"現在地",
   fallbackLat:35.6812,
   fallbackLon:139.7671,
-  maxEvents:8,
+  maxEvents:6,
   deadlineLookAheadDays:180,
-  deadlineMaxItems:7,
+  deadlineDisplayDays:30,
+  deadlineMaxItems:4,
   anniversaryMonth:null,
   anniversaryDay:null,
   refreshMinutes:15
@@ -25,7 +26,7 @@ const C = {
   blue:new Color("#2563EB"), green:new Color("#16A34A"),
   orange:new Color("#EA580C"), red:new Color("#DC2626"),
   purple:new Color("#7C3AED"), gray:new Color("#94A3B8"),
-  card:new Color("#F8FAFC",0.90), weakCard:new Color("#F1F5F9",0.84)
+  card:new Color("#FFFFFF",0.96), weakCard:new Color("#FFFFFF",0.96)
 };
 
 function icon(stack,name,color,size=12){const sf=SFSymbol.named(name);sf.applyFont(Font.systemFont(size));const i=stack.addImage(sf.image);i.imageSize=new Size(size,size);i.tintColor=color;return i;}
@@ -384,7 +385,6 @@ function futureIconName(it){
 }
 
 function futureIconColor(it){
-  if(it.soccer) return C.blue;
   return C.sub;
 }
 
@@ -422,53 +422,27 @@ const allScheduleRows=[
   ...upcoming7
 ];
 
-const ROW_BUDGET=13;
-const BASE_SCHEDULE_ROWS=6;
-const BASE_DEADLINE_ROWS=4;
-const MAX_SCHEDULE_ROWS=8;
-const MAX_DEADLINE_ROWS=7;
+// Home screen policy: show the next six things, not the size of the backlog.
+const scheduleRows=allScheduleRows.slice(0,6);
 
-let scheduleLimit=Math.min(allScheduleRows.length,BASE_SCHEDULE_ROWS);
-let deadlineLimit=Math.min(deadlineData.items.length,BASE_DEADLINE_ROWS);
-let freeRows=Math.max(0,ROW_BUDGET-scheduleLimit-deadlineLimit);
-
-// Use spare height first for schedule, then deadlines, alternating.
-// This keeps "today / next" useful while also exposing more real deadlines.
-while(freeRows>0){
-  let added=false;
-
-  if(scheduleLimit<Math.min(allScheduleRows.length,MAX_SCHEDULE_ROWS)){
-    scheduleLimit++;
-    freeRows--;
-    added=true;
-  }
-
-  if(freeRows>0 && deadlineLimit<Math.min(deadlineData.items.length,MAX_DEADLINE_ROWS)){
-    deadlineLimit++;
-    freeRows--;
-    added=true;
-  }
-
-  if(!added) break;
-}
-
-const scheduleRows=allScheduleRows.slice(0,scheduleLimit);
-const shownDeadlines=deadlineData.items.slice(0,deadlineLimit);
-
-const totalScheduleCount=(eventsData.total||todaySchedule.length)+upcoming7.length;
-const hiddenScheduleCount=Math.max(0,totalScheduleCount-scheduleRows.length);
-const hiddenDeadlineCount=Math.max(0,deadlineData.items.length-shownDeadlines.length);
+// Deadlines only earn home-screen space when they are actionable soon.
+// Far-future deadlines stay in Calendar and naturally surface as they approach.
+const actionableDeadlines=deadlineData.items.filter(it=>{
+  const days=daysBetween(new Date(),it.date);
+  return days>=0 && days<=CFG.deadlineDisplayDays;
+});
+const shownDeadlines=actionableDeadlines.slice(0,CFG.deadlineMaxItems);
 
 const [weatherName,weatherIcon]=weatherInfo(W.code);
 
 const w=new ListWidget();
 w.setPadding(3,14,10,14);
-const bg=new LinearGradient();bg.colors=[new Color("#D8ECFF"),new Color("#EEF7FF"),new Color("#FFFFFF")];bg.locations=[0,0.55,1];w.backgroundGradient=bg;
+w.backgroundColor=new Color("#F5F5F7");
 
 // HEADER
 const header=w.addStack();header.centerAlignContent();
 const left=header.addStack();left.layoutVertically();
-let t=left.addText(position.city);t.font=Font.boldSystemFont(17);t.textColor=C.blue;
+let t=left.addText(position.city);t.font=Font.boldSystemFont(17);t.textColor=C.text;
 t=left.addText(todayText());t.font=Font.mediumSystemFont(10);t.textColor=C.sub;
 header.addSpacer();
 if(W.ok){
@@ -495,13 +469,16 @@ const scheduleCard=mkCard(w);
 scheduleCard.size=new Size(329,0);
 scheduleCard.setPadding(7,12,7,12);
 
-const sh=section(scheduleCard,"calendar","予定",C.blue);
+const sh=scheduleCard.addStack();sh.centerAlignContent();
+let sht=sh.addText("予定");
+sht.font=Font.boldSystemFont(12);
+sht.textColor=C.text;
 sh.addSpacer();
 
 const schedulePartial=!eventsData.ok || !upcomingData.ok;
 const scheduleStatus=schedulePartial
   ?"一部取得失敗"
-  :(hiddenScheduleCount>0?"＋"+hiddenScheduleCount:(!scheduleRows.length?"予定なし":""));
+  :(!scheduleRows.length?"予定なし":"");
 
 if(scheduleStatus){
   let st=sh.addText(scheduleStatus);
@@ -570,20 +547,17 @@ w.addSpacer(4);
 const deadlineCard=mkCard(w);
 deadlineCard.size=new Size(329,0);
 deadlineCard.setPadding(7,12,7,12);
-const dh=section(deadlineCard,"exclamationmark.triangle.fill","重要期限",C.red);
-if(hiddenDeadlineCount>0){
-  dh.addSpacer();
-  let more=dh.addText("＋"+hiddenDeadlineCount);
-  more.font=Font.systemFont(8);
-  more.textColor=C.gray;
-}
+const dh=deadlineCard.addStack();dh.centerAlignContent();
+let dht=dh.addText("重要期限");
+dht.font=Font.boldSystemFont(12);
+dht.textColor=C.text;
 deadlineCard.addSpacer(4);
 
 if(!deadlineData.ok){
   t=deadlineCard.addText("取得失敗");
   t.font=Font.mediumSystemFont(11);t.textColor=C.red;
-}else if(!deadlineData.items.length){
-  t=deadlineCard.addText("直近の重要期限なし");
+}else if(!actionableDeadlines.length){
+  t=deadlineCard.addText("30日以内の重要期限なし");
   t.font=Font.mediumSystemFont(11);t.textColor=C.sub;
 }else{
   shownDeadlines.forEach((it,i)=>{
