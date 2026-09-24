@@ -1,8 +1,8 @@
-// 俺専用ダッシュボード v1.33-github
+// 俺専用ダッシュボード v1.34-github
 // Remote main for Scriptable loader.
 // IMPORTANT: Script.complete() は loader 側で呼ぶ。
 
-const VERSION = "1.33-github";
+const VERSION = "1.34-github";
 
 const USER = globalThis.ORE_DASH_CONFIG || {};
 
@@ -21,11 +21,11 @@ const CFG = Object.assign({
 const DEADLINE_KEYWORDS = ["締切","〆切","期限","払込期限","納入期限","提出期限","申込期限","申請期限","回答期限","最終日","必着"];
 
 const C = {
-  text:new Color("#0F172A"), sub:new Color("#64748B"),
+  text:new Color("#1E293B"), sub:new Color("#64748B"),
   blue:new Color("#2563EB"), green:new Color("#16A34A"),
   orange:new Color("#EA580C"), red:new Color("#DC2626"),
   purple:new Color("#7C3AED"), gray:new Color("#94A3B8"),
-  card:new Color("#FFFFFF",0.82), weakCard:new Color("#FFFFFF",0.64)
+  card:new Color("#F8FAFC",0.90), weakCard:new Color("#F1F5F9",0.84)
 };
 
 function icon(stack,name,color,size=12){const sf=SFSymbol.named(name);sf.applyFont(Font.systemFont(size));const i=stack.addImage(sf.image);i.imageSize=new Size(size,size);i.tintColor=color;return i;}
@@ -406,7 +406,7 @@ const bg=new LinearGradient();bg.colors=[new Color("#D8ECFF"),new Color("#EEF7FF
 const header=w.addStack();header.centerAlignContent();
 const left=header.addStack();left.layoutVertically();
 let t=left.addText(position.city);t.font=Font.boldSystemFont(17);t.textColor=C.blue;
-t=left.addText(todayText());t.font=Font.systemFont(10);t.textColor=C.sub;
+t=left.addText(todayText());t.font=Font.mediumSystemFont(10);t.textColor=C.sub;
 header.addSpacer();
 if(W.ok){
   const weatherBox=header.addStack();weatherBox.layoutVertically();
@@ -445,7 +445,7 @@ if(!eventsData.ok){
   icon(line,"calendar",C.blue,12);line.addSpacer(6);
   let tx=line.addText("今日の予定");tx.font=Font.boldSystemFont(12);tx.textColor=C.text;
   line.addSpacer();
-  tx=line.addText("今日は予定なし");tx.font=Font.systemFont(10);tx.textColor=C.sub;
+  tx=line.addText("今日は予定なし");tx.font=Font.mediumSystemFont(10);tx.textColor=C.sub;
 }else{
   const eventCard=mkCard(w);
   const eventHeight=Math.min(92,46+eventsData.items.length*15);
@@ -468,7 +468,7 @@ if(!eventsData.ok){
     l.addSpacer(7);
 
     x=l.addText(shorten(e.title,32));
-    x.font=Font.systemFont(11);
+    x.font=Font.mediumSystemFont(11);
     x.textColor=C.text;
     x.lineLimit=1;
 
@@ -486,10 +486,10 @@ deadlineCard.addSpacer(4);
 
 if(!deadlineData.ok){
   t=deadlineCard.addText("取得失敗");
-  t.font=Font.systemFont(11);t.textColor=C.red;
+  t.font=Font.mediumSystemFont(11);t.textColor=C.red;
 }else if(!deadlineData.items.length){
   t=deadlineCard.addText("直近の重要期限なし");
-  t.font=Font.systemFont(11);t.textColor=C.sub;
+  t.font=Font.mediumSystemFont(11);t.textColor=C.sub;
 }else{
   const shownDeadlines=deadlineData.items.slice(0,2);
   const extraDeadlines=Math.max(0,deadlineData.items.length-shownDeadlines.length);
@@ -513,7 +513,7 @@ if(!deadlineData.ok){
     deadlineCard.addSpacer(1);
 
     let title=deadlineCard.addText(shorten(it.title,32));
-    title.font=Font.systemFont(11);
+    title.font=Font.mediumSystemFont(11);
     title.textColor=C.text;
     title.lineLimit=1;
 
@@ -548,7 +548,7 @@ futureCard.addSpacer(4);
 
 if(!upcoming7.length){
   fx=futureCard.addText(upcomingData.ok?"重要な予定はありません":"カレンダーを取得できません");
-  fx.font=Font.systemFont(10);fx.textColor=upcomingData.ok?C.sub:C.orange;
+  fx.font=Font.mediumSystemFont(10);fx.textColor=upcomingData.ok?C.sub:C.orange;
 }else{
   displayUpcoming.forEach((it,i)=>{
     const line=futureCard.addStack();line.centerAlignContent();
@@ -568,7 +568,7 @@ if(!upcoming7.length){
     line.addSpacer(8);
 
     let title=line.addText(compactUpcomingTitle(it));
-    title.font=featured?Font.semiboldSystemFont(11):Font.systemFont(11);
+    title.font=featured?Font.semiboldSystemFont(11):Font.mediumSystemFont(11);
     title.textColor=C.text;
     title.lineLimit=1;
 
