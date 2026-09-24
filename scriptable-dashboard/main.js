@@ -1,8 +1,8 @@
-// 俺専用ダッシュボード v1.28-github
+// 俺専用ダッシュボード v1.29-github
 // Remote main for Scriptable loader.
 // IMPORTANT: Script.complete() は loader 側で呼ぶ。
 
-const VERSION = "1.28-github";
+const VERSION = "1.29-github";
 
 const USER = globalThis.ORE_DASH_CONFIG || {};
 
@@ -156,8 +156,7 @@ async function getImportantDeadlines(){
 
     out.items=out.items
       .filter(x=>x.date>=dayStart(now))
-      .sort((a,b)=>a.date-b.date)
-      .slice(0,CFG.deadlineMaxItems);
+      .sort((a,b)=>a.date-b.date);
 
   }catch(_){}
 
@@ -295,6 +294,30 @@ function upcomingDayLabel(d){
   return fmtDate(d);
 }
 
+function deadlineColor(date){
+  const n=daysBetween(new Date(),date);
+  if(n<=3) return C.red;
+  if(n<=7) return C.orange;
+  return C.sub;
+}
+
+function compactUpcomingTitle(it){
+  let v=normalize(it.title)
+    .replace(/^[🥊🥋⚽]\s*/,"");
+
+  if(it.combat){
+    v=v.split(/[|｜]/)[0].trim();
+  }
+
+  return shorten(v,30);
+}
+
+function combatEmoji(it){
+  const t=normalize(it.title).toLowerCase();
+  if(t.includes("boxing") || t.includes("ボクシング") || t.includes("prime video boxing") || t.includes("pbc")) return "🥊";
+  return "🥋";
+}
+
 function futureIconName(it){
   if(it.source==="家族" || normalize(it.title).includes("誕生日")) return "gift.fill";
   if(it.soccer) return "soccerball";
@@ -330,7 +353,7 @@ const featuredEvents=featured.slice(0,2);
 const displayUpcoming=[
   ...featuredEvents,
   ...upcoming7.filter(x=>!featuredEvents.includes(x))
-].slice(0,5);
+].slice(0,4);
 const [weatherName,weatherIcon]=weatherInfo(W.code);
 
 const w=new ListWidget();
@@ -411,7 +434,7 @@ const deadlineCard=mkCard(w);
 deadlineCard.size=new Size(329,0);
 deadlineCard.setPadding(10,12,10,12);
 section(deadlineCard,"exclamationmark.triangle.fill","重要期限",C.red);
-deadlineCard.addSpacer(6);
+deadlineCard.addSpacer(7);
 
 if(!deadlineData.ok){
   t=deadlineCard.addText("取得失敗");
@@ -420,30 +443,50 @@ if(!deadlineData.ok){
   t=deadlineCard.addText("直近の重要期限なし");
   t.font=Font.systemFont(11);t.textColor=C.sub;
 }else{
-  deadlineData.items.forEach((it,i)=>{
-    const l=deadlineCard.addStack();l.centerAlignContent();
+  const shownDeadlines=deadlineData.items.slice(0,2);
+  const extraDeadlines=Math.max(0,deadlineData.items.length-shownDeadlines.length);
 
-    let dot=l.addText("●");dot.font=Font.systemFont(8);dot.textColor=C.red;
-    l.addSpacer(5);
+  shownDeadlines.forEach((it,i)=>{
+    const urgency=deadlineColor(it.date);
 
-    let date=l.addText(fmtDate(it.date));date.font=Font.boldSystemFont(10);date.textColor=C.text;
-    l.addSpacer(7);
+    const meta=deadlineCard.addStack();meta.centerAlignContent();
+    let dot=meta.addText("●");dot.font=Font.systemFont(8);dot.textColor=urgency;
+    meta.addSpacer(5);
 
-    let title=l.addText(shorten(it.title,28));
-    title.font=Font.systemFont(10);title.textColor=C.text;title.lineLimit=1;title.minimumScaleFactor=0.80;
+    let date=meta.addText(fmtDate(it.date));
+    date.font=Font.boldSystemFont(10);
+    date.textColor=C.text;
 
-    l.addSpacer();
-    let rel=l.addText(relativeDay(it.date));rel.font=Font.boldSystemFont(9);rel.textColor=C.red;
+    meta.addSpacer();
+    let rel=meta.addText(relativeDay(it.date));
+    rel.font=Font.boldSystemFont(10);
+    rel.textColor=urgency;
 
-    if(i<deadlineData.items.length-1)deadlineCard.addSpacer(5);
+    deadlineCard.addSpacer(2);
+
+    let title=deadlineCard.addText(shorten(it.title,38));
+    title.font=Font.systemFont(11);
+    title.textColor=C.text;
+    title.lineLimit=1;
+    title.minimumScaleFactor=0.84;
+
+    if(i<shownDeadlines.length-1)deadlineCard.addSpacer(8);
   });
+
+  if(extraDeadlines>0){
+    deadlineCard.addSpacer(6);
+    const more=deadlineCard.addStack();more.centerAlignContent();more.addSpacer();
+    let plus=more.addText("＋"+extraDeadlines+"件");
+    plus.font=Font.semiboldSystemFont(9);
+    plus.textColor=C.gray;
+  }
 }
 w.addSpacer(4);
 
 // ROW4 rolling next events
 const futureCard=w.addStack();futureCard.layoutVertically();futureCard.size=new Size(329,0);
 futureCard.backgroundColor=C.weakCard;futureCard.cornerRadius=12;
-futureCard.setPadding(10,11,10,11);
+futureCard.setPadding(11,12,11,12);
 
 let fh=futureCard.addStack();fh.centerAlignContent();
 icon(fh,"calendar.badge.clock",C.blue,11);fh.addSpacer(5);
@@ -456,46 +499,46 @@ futureCard.addSpacer(5);
 
 if(!upcoming7.length){
   fx=futureCard.addText("重要な予定はありません");
-  fx.font=Font.systemFont(9);fx.textColor=C.sub;
+  fx.font=Font.systemFont(10);fx.textColor=C.sub;
 }else{
   displayUpcoming.forEach((it,i)=>{
     const line=futureCard.addStack();line.centerAlignContent();
     const featured=featuredEvents.includes(it);
 
     if(it.combat){
-      let em=line.addText("🥊");
-      em.font=Font.systemFont(10);
+      let em=line.addText(combatEmoji(it));
+      em.font=Font.systemFont(11);
     }else{
-      icon(line,futureIconName(it),futureIconColor(it),9);
+      icon(line,futureIconName(it),futureIconColor(it),10);
     }
-    line.addSpacer(5);
+    line.addSpacer(6);
 
     let d=line.addText(upcomingDayLabel(it.date));
-    d.font=Font.boldSystemFont(9);
+    d.font=Font.boldSystemFont(10);
     d.textColor=it.combat?C.red:(it.soccer?C.blue:(it.color||C.blue));
-    line.addSpacer(7);
+    line.addSpacer(8);
 
-    let title=line.addText(it.title);
-    title.font=featured?Font.semiboldSystemFont(10):Font.systemFont(10);
+    let title=line.addText(compactUpcomingTitle(it));
+    title.font=featured?Font.semiboldSystemFont(11):Font.systemFont(11);
     title.textColor=C.text;
     title.lineLimit=1;
-    title.minimumScaleFactor=0.80;
+    title.minimumScaleFactor=0.86;
 
     if(!it.allDay){
-      line.addSpacer(6);
+      line.addSpacer(7);
       let tm=line.addText(fmtTime(it.date,false));
-      tm.font=Font.semiboldSystemFont(8);
+      tm.font=Font.semiboldSystemFont(9);
       tm.textColor=C.sub;
     }
 
     if(featured){
-      line.addSpacer(6);
+      line.addSpacer(7);
       let rel=line.addText(relativeDay(it.date));
-      rel.font=Font.boldSystemFont(8);
+      rel.font=Font.boldSystemFont(9);
       rel.textColor=it.combat?C.red:C.blue;
     }
 
-    if(i<displayUpcoming.length-1) futureCard.addSpacer(7);
+    if(i<displayUpcoming.length-1) futureCard.addSpacer(9);
   });
 }
 
