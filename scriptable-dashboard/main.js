@@ -1,8 +1,8 @@
-// 俺専用ダッシュボード v1.38-github
+// 俺専用ダッシュボード v1.39-github
 // Remote main for Scriptable loader.
 // IMPORTANT: Script.complete() は loader 側で呼ぶ。
 
-const VERSION = "1.38-github";
+const VERSION = "1.39-github";
 
 const USER = globalThis.ORE_DASH_CONFIG || {};
 
@@ -10,9 +10,9 @@ const CFG = Object.assign({
   fallbackCity:"現在地",
   fallbackLat:35.6812,
   fallbackLon:139.7671,
-  maxEvents:5,
+  maxEvents:6,
   deadlineLookAheadDays:180,
-  deadlineMaxItems:3,
+  deadlineMaxItems:4,
   anniversaryMonth:null,
   anniversaryDay:null,
   refreshMinutes:15
@@ -420,13 +420,13 @@ const todaySchedule=eventsData.items.map(e=>{
 const scheduleRows=[
   ...todaySchedule,
   ...upcoming7
-].slice(0,5);
+].slice(0,6);
 
 const hiddenToday=Math.max(0,(eventsData.total||0)-todaySchedule.length);
 const [weatherName,weatherIcon]=weatherInfo(W.code);
 
 const w=new ListWidget();
-w.setPadding(6,14,14,14);
+w.setPadding(4,14,14,14);
 const bg=new LinearGradient();bg.colors=[new Color("#D8ECFF"),new Color("#EEF7FF"),new Color("#FFFFFF")];bg.locations=[0,0.55,1];w.backgroundGradient=bg;
 
 // HEADER
@@ -457,7 +457,7 @@ w.addSpacer(2);
 // ROW1 unified schedule timeline
 const scheduleCard=mkCard(w);
 scheduleCard.size=new Size(329,0);
-scheduleCard.setPadding(10,12,10,12);
+scheduleCard.setPadding(8,12,8,12);
 
 const sh=section(scheduleCard,"calendar","予定",C.blue);
 sh.addSpacer();
@@ -473,7 +473,7 @@ if(scheduleStatus){
   st.textColor=schedulePartial?C.orange:C.gray;
 }
 
-scheduleCard.addSpacer(7);
+scheduleCard.addSpacer(5);
 
 if(!scheduleRows.length){
   let empty=scheduleCard.addText(schedulePartial?"予定を取得できません":"予定はありません");
@@ -523,7 +523,7 @@ if(!scheduleRows.length){
     if(i<scheduleRows.length-1){
       const next=scheduleRows[i+1];
       const endOfDayGroup=next&&!sameCalendarDay(it.date,next.date);
-      scheduleCard.addSpacer(endOfDayGroup?9:6);
+      scheduleCard.addSpacer(endOfDayGroup?6:4);
     }
   });
 
@@ -533,16 +533,9 @@ w.addSpacer(6);
 // ROW2 important deadlines
 const deadlineCard=mkCard(w);
 deadlineCard.size=new Size(329,0);
-deadlineCard.setPadding(10,12,10,12);
-const extraDeadlineCount=deadlineData.ok?Math.max(0,deadlineData.items.length-2):0;
-const dh=section(deadlineCard,"exclamationmark.triangle.fill","重要期限",C.red);
-if(extraDeadlineCount>0){
-  dh.addSpacer();
-  let more=dh.addText("ほかあり");
-  more.font=Font.systemFont(8);
-  more.textColor=C.gray;
-}
-deadlineCard.addSpacer(7);
+deadlineCard.setPadding(8,12,8,12);
+section(deadlineCard,"exclamationmark.triangle.fill","重要期限",C.red);
+deadlineCard.addSpacer(5);
 
 if(!deadlineData.ok){
   t=deadlineCard.addText("取得失敗");
@@ -551,33 +544,38 @@ if(!deadlineData.ok){
   t=deadlineCard.addText("直近の重要期限なし");
   t.font=Font.mediumSystemFont(11);t.textColor=C.sub;
 }else{
-  const shownDeadlines=deadlineData.items.slice(0,2);
+  const shownDeadlines=deadlineData.items.slice(0,CFG.deadlineMaxItems);
+
   shownDeadlines.forEach((it,i)=>{
     const urgency=deadlineColor(it.date);
+    const line=deadlineCard.addStack();line.centerAlignContent();
 
-    const meta=deadlineCard.addStack();meta.centerAlignContent();
-    let dot=meta.addText("●");dot.font=Font.systemFont(8);dot.textColor=urgency;
-    meta.addSpacer(5);
+    let dot=line.addText("●");
+    dot.font=Font.systemFont(8);
+    dot.textColor=urgency;
+    line.addSpacer(5);
 
-    let date=meta.addText(fmtDate(it.date));
+    const dateBox=line.addStack();
+    dateBox.size=new Size(37,0);
+    let date=dateBox.addText(fmtDate(it.date));
     date.font=Font.boldSystemFont(10);
     date.textColor=C.text;
 
-    meta.addSpacer();
-    let rel=meta.addText(relativeDay(it.date));
-    rel.font=Font.boldSystemFont(10);
-    rel.textColor=urgency;
+    line.addSpacer(5);
 
-    deadlineCard.addSpacer(1);
-
-    let title=deadlineCard.addText(shorten(it.title,32));
-    title.font=Font.mediumSystemFont(11);
+    let title=line.addText(shorten(it.title,26));
+    title.font=Font.mediumSystemFont(10);
     title.textColor=C.text;
     title.lineLimit=1;
 
-    if(i<shownDeadlines.length-1)deadlineCard.addSpacer(9);
-  });
+    line.addSpacer();
 
+    let rel=line.addText(relativeDay(it.date));
+    rel.font=Font.boldSystemFont(9);
+    rel.textColor=urgency;
+
+    if(i<shownDeadlines.length-1) deadlineCard.addSpacer(5);
+  });
 }
 w.addSpacer(2);
 
