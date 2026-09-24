@@ -1,8 +1,8 @@
-// 俺専用ダッシュボード v1.30-github
+// 俺専用ダッシュボード v1.31-github
 // Remote main for Scriptable loader.
 // IMPORTANT: Script.complete() は loader 側で呼ぶ。
 
-const VERSION = "1.30-github";
+const VERSION = "1.31-github";
 
 const USER = globalThis.ORE_DASH_CONFIG || {};
 
@@ -10,7 +10,7 @@ const CFG = Object.assign({
   fallbackCity:"現在地",
   fallbackLat:35.6812,
   fallbackLon:139.7671,
-  maxEvents:4,
+  maxEvents:3,
   deadlineLookAheadDays:180,
   deadlineMaxItems:3,
   anniversaryMonth:null,
@@ -80,8 +80,9 @@ async function getEvents(){
     const list=await CalendarEvent.today();
     const seen=new Set();
 
-    const items=list
+    const all=list
       .filter(e=>!isHolidayCalendarTitle(calName(e)))
+      .filter(e=>!isInactiveTitle(e.title))
       .filter(e=>isAllDayLikeEvent(e)||e.endDate>now)
       .sort((a,b)=>{
         const aa=isAllDayLikeEvent(a),bb=isAllDayLikeEvent(b);
@@ -94,11 +95,10 @@ async function getEvents(){
         if(seen.has(key)) return false;
         seen.add(key);
         return true;
-      })
-      .slice(0,CFG.maxEvents);
+      });
 
-    return {ok:true,items};
-  }catch(_){return {ok:false,items:[]};}
+    return {ok:true,total:all.length,items:all.slice(0,CFG.maxEvents)};
+  }catch(_){return {ok:false,total:0,items:[]};}
 }
 
 function isDeadlineText(text){
@@ -133,11 +133,11 @@ async function getImportantDeadlines(){
       if(isHolidayCalendarTitle(calendarTitle)) continue;
 
       const title=normalize(e.title);
-      if(!title) continue;
+      if(!title || isInactiveTitle(title)) continue;
 
-      const notes=normalize(e.notes);
-      const combined=title+" "+notes;
-      if(!isDeadlineText(combined)) continue;
+      // 説明欄に別日の「期限」が書かれていても、そのイベント自体を期限扱いしない。
+      // 重要期限はイベント名が期限を明示しているものだけを採用する。
+      if(!isDeadlineText(title)) continue;
 
       const date=new Date(e.startDate);
       const cleaned=cleanDeadlineTitle(title,date);
@@ -169,18 +169,50 @@ function isHolidayCalendarTitle(title){
   return t.includes("祝日") || t.includes("holiday");
 }
 
+function isInactiveTitle(title){
+  const t=normalize(title);
+  return /^(?:✅|☑️|【完了】|\[完了\]|完了[：:\s]|【中止】|【取消】|【キャンセル】|中止[：:\s]|取消[：:\s]|キャンセル[：:\s])/i.test(t);
+}
+
+function stripLeadingSportEmoji(value){
+  const cps=Array.from(normalize(value));
+  const sports=new Set(["🥊","🥋","⚽"]);
+  while(cps.length){
+    const cp=cps[0];
+    if(sports.has(cp) || cp==="\uFE0E" || cp==="\uFE0F" || cp==="\uFFFD"){
+      cps.shift();
+      continue;
+    }
+    break;
+  }
+  return cps.join("").trim();
+}
+
+function hasFlagEmoji(value){
+  return Array.from(String(value||"")).some(ch=>{
+    const cp=ch.codePointAt(0);
+    return cp>=0x1F1E6 && cp<=0x1F1FF;
+  });
+}
+
 function isCombatEvent(title,calendarTitle=""){
-  const t=(normalize(title)+" "+normalize(calendarTitle)).toLowerCase();
+  if(isInactiveTitle(title)) return false;
+
+  const clean=normalize(title);
+  const first=Array.from(clean)[0]||"";
+  if(first==="🥊" || first==="🥋") return true;
+
+  const t=(clean+" "+normalize(calendarTitle)).toLowerCase();
   const patterns=[
     /(^|\s|[^a-z0-9])ufc([^a-z0-9]|$)/,
     /rizin/,
     /(^|\s|[^a-z0-9])mma([^a-z0-9]|$)/,
     /(^|\s|[^a-z0-9])pfl([^a-z0-9]|$)/,
     /bellator/,
-    /(^|\s|[^a-z0-9])one([^a-z0-9]|$)/,
+    /one\s+(championship|samurai|fight\s*night)/,
     /k[- ]?1/,
     /knock\s*out/,
-    /(^|\s|[^a-z0-9])rise([^a-z0-9]|$)/,
+    /(^|\s|[^a-z0-9])rise\s*\d|rise\s+world\s+series/,
     /prime\s*video\s*boxing/,
     /boxing/,
     /ボクシング/,
@@ -193,18 +225,23 @@ function isCombatEvent(title,calendarTitle=""){
 }
 
 function isSoccerEvent(title,calendarTitle="",notes=""){
-  const t=(normalize(title)+" "+normalize(calendarTitle)+" "+normalize(notes)).toLowerCase();
+  if(isInactiveTitle(title)) return false;
+
+  const raw=normalize(title);
+  const t=(raw+" "+normalize(calendarTitle)+" "+normalize(notes)).toLowerCase();
 
   if(t.includes("fotmob") || t.includes("fotmob.com")) return true;
   if(t.includes("⚽") || t.includes("サッカー") || t.includes("football") || t.includes("soccer")) return true;
 
+  // 国代表は国名だけで判定せず、旗＋対戦区切りがある試合タイトルだけ拾う。
+  if(hasFlagEmoji(raw) && /(\s-\s|\svs\.?\s|\sv\s)/i.test(raw)) return true;
+
   const known=[
     "manchester united","manchester city","liverpool","arsenal","chelsea","tottenham",
     "real madrid","atlético madrid","atletico madrid","barcelona","bayern","dortmund",
-    "inter milan","ac milan","juventus","paris saint-germain","psg",
-    "japan","日本代表"
+    "inter milan","ac milan","juventus","paris saint-germain","psg","augsburg"
   ];
-  return known.some(k=>t.includes(k));
+  return known.some(k=>t.includes(k)) && /(\s-\s|\svs\.?\s|\sv\s)/i.test(raw);
 }
 
 function isAllDayLikeEvent(e){
@@ -229,9 +266,11 @@ async function getUpcomingNext(ann){
   const start=addDays(dayStart(now),1);
   const end=addDays(start,30);
   const out=[];
+  let calendarOK=false;
 
   try{
     const es=await CalendarEvent.between(start,end);
+    calendarOK=true;
     for(const e of es){
       const d=new Date(e.startDate);
       if(d<start || d>=end) continue;
@@ -240,7 +279,7 @@ async function getUpcomingNext(ann){
       if(isHolidayCalendarTitle(calendarTitle)) continue;
 
       const title=normalize(e.title);
-      if(!title) continue;
+      if(!title || isInactiveTitle(title)) continue;
 
       const combined=title+" "+normalize(e.notes);
 
@@ -272,7 +311,7 @@ async function getUpcomingNext(ann){
   }
 
   const seen=new Set();
-  return out
+  const items=out
     .sort((a,b)=>{
       const da=dayStart(a.date)-dayStart(b.date);
       if(da!==0) return da;
@@ -281,11 +320,14 @@ async function getUpcomingNext(ann){
       return a.date-b.date;
     })
     .filter(x=>{
-      const k=normalize(x.title).toLowerCase()+"|"+dayStart(x.date).getTime();
+      // 同じ日に同名イベントが複数あっても、開始時刻が違えば別予定として残す。
+      const k=normalize(x.title).toLowerCase()+"|"+x.date.getTime()+"|"+x.allDay;
       if(seen.has(k)) return false;
       seen.add(k);
       return true;
     });
+
+  return {ok:calendarOK,items};
 }
 
 function upcomingDayLabel(d){
@@ -302,16 +344,15 @@ function deadlineColor(date){
 }
 
 function compactUpcomingTitle(it){
-  let v=normalize(it.title)
+  let v=stripLeadingSportEmoji(it.title)
     .replace(/[\uFE0E\uFE0F\uFFFD]/g,"")
-    .replace(/^[🥊🥋⚽]\s*/,"")
     .trim();
 
   if(it.combat){
     v=v.split(/[|｜]/)[0].trim();
   }
 
-  return shorten(v,30);
+  return shorten(v,26);
 }
 
 function combatEmoji(it){
@@ -342,7 +383,8 @@ const fetchedAt=new Date();
 const position=await getPosition();
 const [W,eventsData,deadlineData]=await Promise.all([getWeather(position),getEvents(),getImportantDeadlines()]);
 const ann=anniversary();
-const upcoming7=await getUpcomingNext(ann);
+const upcomingData=await getUpcomingNext(ann);
+const upcoming7=upcomingData.items;
 const nextCombat=upcoming7.find(x=>x.combat)||null;
 const nextSoccer=upcoming7.find(x=>x.soccer)||null;
 
@@ -374,11 +416,13 @@ if(W.ok){
   icon(weatherTop,weatherIcon,C.blue,22);
   weatherBox.addSpacer(1);
   const weatherMeta=weatherBox.addStack();weatherMeta.centerAlignContent();
-  t=weatherMeta.addText("↑"+W.max+"°  ↓"+W.min+"°  降水"+W.rain+"%");t.font=Font.systemFont(9);t.textColor=C.sub;
+  t=weatherMeta.addText("↑"+W.max+"°  ↓"+W.min+"°  今日降水"+W.rain+"%");t.font=Font.systemFont(9);t.textColor=C.sub;
   weatherBox.addSpacer(1);
   const liveMeta=weatherBox.addStack();liveMeta.centerAlignContent();
-  t=liveMeta.addText("●");t.font=Font.systemFont(7);t.textColor=C.green;liveMeta.addSpacer(3);
-  t=liveMeta.addText("更新 ");t.font=Font.systemFont(7);t.textColor=C.gray;
+  const dataHealthy=position.ok&&eventsData.ok&&deadlineData.ok&&upcomingData.ok;
+  t=liveMeta.addText("●");t.font=Font.systemFont(7);t.textColor=dataHealthy?C.green:C.orange;liveMeta.addSpacer(3);
+  const stateLabel=!position.ok?"予備地点 ":(!dataHealthy?"一部取得失敗 ":"更新 ");
+  t=liveMeta.addText(stateLabel);t.font=Font.systemFont(7);t.textColor=dataHealthy?C.gray:C.orange;
   const liveRel=liveMeta.addDate(fetchedAt);liveRel.applyRelativeStyle();liveRel.font=Font.systemFont(7);liveRel.textColor=C.gray;
 }else{t=header.addText("天気取得失敗");t.font=Font.semiboldSystemFont(10);t.textColor=C.red;}
 w.addSpacer(4);
@@ -404,10 +448,15 @@ if(!eventsData.ok){
   tx=line.addText("今日は予定なし");tx.font=Font.systemFont(10);tx.textColor=C.sub;
 }else{
   const eventCard=mkCard(w);
-  const eventHeight=Math.min(108,54+eventsData.items.length*18);
+  const eventHeight=Math.min(102,54+eventsData.items.length*18);
   eventCard.size=new Size(329,eventHeight);
   eventCard.setPadding(10,12,10,12);
-  section(eventCard,"calendar","今日の予定",C.blue);
+  const eh=section(eventCard,"calendar","今日の予定",C.blue);
+  if(eventsData.total>eventsData.items.length){
+    eh.addSpacer();
+    let more=eh.addText("ほか"+(eventsData.total-eventsData.items.length)+"件");
+    more.font=Font.systemFont(8);more.textColor=C.gray;
+  }
   eventCard.addSpacer(6);
 
   eventsData.items.forEach((e,i)=>{
@@ -418,11 +467,10 @@ if(!eventsData.ok){
     x.textColor=C.blue;
     l.addSpacer(7);
 
-    x=l.addText(e.title);
+    x=l.addText(shorten(e.title,32));
     x.font=Font.systemFont(11);
     x.textColor=C.text;
     x.lineLimit=1;
-    x.minimumScaleFactor=0.80;
 
     if(i<eventsData.items.length-1)eventCard.addSpacer(4);
   });
@@ -464,11 +512,10 @@ if(!deadlineData.ok){
 
     deadlineCard.addSpacer(2);
 
-    let title=deadlineCard.addText(shorten(it.title,38));
+    let title=deadlineCard.addText(shorten(it.title,32));
     title.font=Font.systemFont(11);
     title.textColor=C.text;
     title.lineLimit=1;
-    title.minimumScaleFactor=0.84;
 
     if(i<shownDeadlines.length-1)deadlineCard.addSpacer(8);
   });
@@ -493,13 +540,15 @@ icon(fh,"calendar.badge.clock",C.blue,11);fh.addSpacer(5);
 let fx=fh.addText("直近予定");fx.font=Font.boldSystemFont(12);fx.textColor=C.text;
 fh.addSpacer();
 const shownCount=displayUpcoming.length;
-fx=fh.addText(shownCount?shownCount+"件":"予定なし");
-fx.font=Font.systemFont(8);fx.textColor=upcoming7.length?C.green:C.gray;
+const futureState=!upcomingData.ok?"取得失敗":(shownCount?shownCount+"件":"予定なし");
+fx=fh.addText(futureState);
+fx.font=Font.systemFont(8);
+fx.textColor=!upcomingData.ok?C.orange:(upcoming7.length?C.green:C.gray);
 futureCard.addSpacer(5);
 
 if(!upcoming7.length){
-  fx=futureCard.addText("重要な予定はありません");
-  fx.font=Font.systemFont(10);fx.textColor=C.sub;
+  fx=futureCard.addText(upcomingData.ok?"重要な予定はありません":"カレンダーを取得できません");
+  fx.font=Font.systemFont(10);fx.textColor=upcomingData.ok?C.sub:C.orange;
 }else{
   displayUpcoming.forEach((it,i)=>{
     const line=futureCard.addStack();line.centerAlignContent();
@@ -515,14 +564,13 @@ if(!upcoming7.length){
 
     let d=line.addText(upcomingDayLabel(it.date));
     d.font=Font.boldSystemFont(10);
-    d.textColor=it.combat?C.red:(it.soccer?C.blue:(it.color||C.blue));
+    d.textColor=it.combat?C.orange:(it.soccer?C.blue:(it.color||C.blue));
     line.addSpacer(8);
 
     let title=line.addText(compactUpcomingTitle(it));
     title.font=featured?Font.semiboldSystemFont(11):Font.systemFont(11);
     title.textColor=C.text;
     title.lineLimit=1;
-    title.minimumScaleFactor=0.86;
 
     if(!it.allDay){
       line.addSpacer(7);
@@ -535,7 +583,7 @@ if(!upcoming7.length){
       line.addSpacer(7);
       let rel=line.addText(relativeDay(it.date));
       rel.font=Font.boldSystemFont(9);
-      rel.textColor=it.combat?C.red:C.blue;
+      rel.textColor=it.combat?C.orange:C.blue;
     }
 
     if(i<displayUpcoming.length-1) futureCard.addSpacer(9);
