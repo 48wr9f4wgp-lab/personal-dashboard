@@ -1,8 +1,8 @@
-// 俺専用ダッシュボード v1.34-github
+// 俺専用ダッシュボード v1.35-github
 // Remote main for Scriptable loader.
 // IMPORTANT: Script.complete() は loader 側で呼ぶ。
 
-const VERSION = "1.34-github";
+const VERSION = "1.35-github";
 
 const USER = globalThis.ORE_DASH_CONFIG || {};
 
@@ -10,7 +10,7 @@ const CFG = Object.assign({
   fallbackCity:"現在地",
   fallbackLat:35.6812,
   fallbackLon:139.7671,
-  maxEvents:3,
+  maxEvents:5,
   deadlineLookAheadDays:180,
   deadlineMaxItems:3,
   anniversaryMonth:null,
@@ -83,6 +83,7 @@ async function getEvents(){
     const all=list
       .filter(e=>!isHolidayCalendarTitle(calName(e)))
       .filter(e=>!isInactiveTitle(e.title))
+      .filter(e=>!isDeadlineText(normalize(e.title)))
       .filter(e=>isAllDayLikeEvent(e)||e.endDate>now)
       .sort((a,b)=>{
         const aa=isAllDayLikeEvent(a),bb=isAllDayLikeEvent(b);
@@ -385,17 +386,28 @@ const [W,eventsData,deadlineData]=await Promise.all([getWeather(position),getEve
 const ann=anniversary();
 const upcomingData=await getUpcomingNext(ann);
 const upcoming7=upcomingData.items;
-const nextCombat=upcoming7.find(x=>x.combat)||null;
-const nextSoccer=upcoming7.find(x=>x.soccer)||null;
 
-const featured=[];
-if(nextCombat) featured.push(nextCombat);
-if(nextSoccer && nextSoccer!==nextCombat) featured.push(nextSoccer);
-featured.sort((a,b)=>a.date-b.date);
+const todaySchedule=eventsData.items.map(e=>{
+  const calendarTitle=calName(e);
+  return {
+    title:normalize(e.title),
+    date:new Date(e.startDate),
+    allDay:isAllDayLikeEvent(e),
+    source:"予定",
+    kind:"予定",
+    color:C.blue,
+    today:true,
+    combat:isCombatEvent(e.title,calendarTitle),
+    soccer:isSoccerEvent(e.title,calendarTitle,e.notes)
+  };
+});
 
-const featuredEvents=featured.slice(0,2);
-// 表示順は常に時系列。注目は太字・色だけで示す。
-const displayUpcoming=upcoming7.slice(0,4);
+const scheduleRows=[
+  ...todaySchedule,
+  ...upcoming7
+].slice(0,5);
+
+const hiddenToday=Math.max(0,(eventsData.total||0)-todaySchedule.length);
 const [weatherName,weatherIcon]=weatherInfo(W.code);
 
 const w=new ListWidget();
@@ -427,53 +439,73 @@ if(W.ok){
 }else{t=header.addText("天気取得失敗");t.font=Font.semiboldSystemFont(10);t.textColor=C.red;}
 w.addSpacer(2);
 
-// ROW1 full-width today
-if(!eventsData.ok){
-  const eventCard=mkCard(w);
-  eventCard.size=new Size(329,46);
-  eventCard.setPadding(7,12,7,12);
-  const line=eventCard.addStack();line.centerAlignContent();
-  icon(line,"calendar",C.blue,12);line.addSpacer(6);
-  let tx=line.addText("今日の予定");tx.font=Font.boldSystemFont(12);tx.textColor=C.text;
-  line.addSpacer();
-  tx=line.addText("取得失敗");tx.font=Font.systemFont(10);tx.textColor=C.red;
-}else if(!eventsData.items.length){
-  const eventCard=mkCard(w);
-  eventCard.size=new Size(329,44);
-  eventCard.setPadding(9,12,9,12);
-  const line=eventCard.addStack();line.centerAlignContent();
-  icon(line,"calendar",C.blue,12);line.addSpacer(6);
-  let tx=line.addText("今日の予定");tx.font=Font.boldSystemFont(12);tx.textColor=C.text;
-  line.addSpacer();
-  tx=line.addText("今日は予定なし");tx.font=Font.mediumSystemFont(10);tx.textColor=C.sub;
+// ROW1 unified schedule timeline
+const scheduleCard=mkCard(w);
+scheduleCard.size=new Size(329,0);
+scheduleCard.setPadding(7,12,7,12);
+
+const sh=section(scheduleCard,"calendar","予定",C.blue);
+sh.addSpacer();
+
+const schedulePartial=!eventsData.ok || !upcomingData.ok;
+let scheduleStatus;
+if(schedulePartial) scheduleStatus="一部取得失敗";
+else if(scheduleRows.length) scheduleStatus=scheduleRows.length+"件";
+else scheduleStatus="予定なし";
+
+let st=sh.addText(scheduleStatus);
+st.font=Font.systemFont(8);
+st.textColor=schedulePartial?C.orange:C.gray;
+
+scheduleCard.addSpacer(5);
+
+if(!scheduleRows.length){
+  let empty=scheduleCard.addText(schedulePartial?"予定を取得できません":"予定はありません");
+  empty.font=Font.mediumSystemFont(10);
+  empty.textColor=schedulePartial?C.orange:C.sub;
 }else{
-  const eventCard=mkCard(w);
-  const eventHeight=Math.min(92,46+eventsData.items.length*15);
-  eventCard.size=new Size(329,eventHeight);
-  eventCard.setPadding(7,12,7,12);
-  const eh=section(eventCard,"calendar","今日の予定",C.blue);
-  if(eventsData.total>eventsData.items.length){
-    eh.addSpacer();
-    let more=eh.addText("ほか"+(eventsData.total-eventsData.items.length)+"件");
-    more.font=Font.systemFont(8);more.textColor=C.gray;
-  }
-  eventCard.addSpacer(4);
+  scheduleRows.forEach((it,i)=>{
+    const line=scheduleCard.addStack();line.centerAlignContent();
 
-  eventsData.items.forEach((e,i)=>{
-    const l=eventCard.addStack();l.centerAlignContent();
+    const dayBox=line.addStack();
+    dayBox.size=new Size(38,0);
+    let day=dayBox.addText(it.today?"今日":fmtDate(it.date));
+    day.font=Font.boldSystemFont(10);
+    day.textColor=it.today?C.blue:C.text;
 
-    let x=l.addText(fmtTime(e.startDate,isAllDayLikeEvent(e)));
-    x.font=Font.boldSystemFont(11);
-    x.textColor=C.blue;
-    l.addSpacer(7);
+    line.addSpacer(4);
 
-    x=l.addText(shorten(e.title,32));
-    x.font=Font.mediumSystemFont(11);
-    x.textColor=C.text;
-    x.lineLimit=1;
+    const timeBox=line.addStack();
+    timeBox.size=new Size(40,0);
+    let time=timeBox.addText(fmtTime(it.date,it.allDay));
+    time.font=Font.semiboldSystemFont(9);
+    time.textColor=it.today?C.blue:C.sub;
 
-    if(i<eventsData.items.length-1)eventCard.addSpacer(3);
+    line.addSpacer(4);
+
+    if(it.combat){
+      let em=line.addText(combatEmoji(it));
+      em.font=Font.systemFont(10);
+    }else{
+      icon(line,futureIconName(it),futureIconColor(it),9);
+    }
+
+    line.addSpacer(5);
+
+    let title=line.addText(compactUpcomingTitle(it));
+    title.font=(it.combat||it.soccer)?Font.semiboldSystemFont(11):Font.mediumSystemFont(11);
+    title.textColor=C.text;
+    title.lineLimit=1;
+
+    if(i<scheduleRows.length-1) scheduleCard.addSpacer(5);
   });
+
+  if(hiddenToday>0){
+    scheduleCard.addSpacer(4);
+    const more=scheduleCard.addStack();more.centerAlignContent();more.addSpacer();
+    let mt=more.addText("今日ほか"+hiddenToday+"件");
+    mt.font=Font.systemFont(8);mt.textColor=C.gray;
+  }
 }
 w.addSpacer(2);
 
@@ -529,66 +561,6 @@ if(!deadlineData.ok){
   }
 }
 w.addSpacer(2);
-
-// ROW4 rolling next events
-const futureCard=w.addStack();futureCard.layoutVertically();futureCard.size=new Size(329,0);
-futureCard.backgroundColor=C.weakCard;futureCard.cornerRadius=12;
-futureCard.setPadding(7,12,7,12);
-
-let fh=futureCard.addStack();fh.centerAlignContent();
-icon(fh,"calendar.badge.clock",C.blue,11);fh.addSpacer(5);
-let fx=fh.addText("直近予定");fx.font=Font.boldSystemFont(12);fx.textColor=C.text;
-fh.addSpacer();
-const shownCount=displayUpcoming.length;
-const futureState=!upcomingData.ok?"取得失敗":(shownCount?shownCount+"件":"予定なし");
-fx=fh.addText(futureState);
-fx.font=Font.systemFont(8);
-fx.textColor=!upcomingData.ok?C.orange:C.gray;
-futureCard.addSpacer(4);
-
-if(!upcoming7.length){
-  fx=futureCard.addText(upcomingData.ok?"重要な予定はありません":"カレンダーを取得できません");
-  fx.font=Font.mediumSystemFont(10);fx.textColor=upcomingData.ok?C.sub:C.orange;
-}else{
-  displayUpcoming.forEach((it,i)=>{
-    const line=futureCard.addStack();line.centerAlignContent();
-    const featured=featuredEvents.includes(it);
-
-    if(it.combat){
-      let em=line.addText(combatEmoji(it));
-      em.font=Font.systemFont(11);
-    }else{
-      icon(line,futureIconName(it),futureIconColor(it),10);
-    }
-    line.addSpacer(6);
-
-    let d=line.addText(upcomingDayLabel(it.date));
-    d.font=Font.boldSystemFont(10);
-    d.textColor=it.soccer?C.blue:C.text;
-    line.addSpacer(8);
-
-    let title=line.addText(compactUpcomingTitle(it));
-    title.font=featured?Font.semiboldSystemFont(11):Font.mediumSystemFont(11);
-    title.textColor=C.text;
-    title.lineLimit=1;
-
-    if(!it.allDay){
-      line.addSpacer(7);
-      let tm=line.addText(fmtTime(it.date,false));
-      tm.font=Font.semiboldSystemFont(9);
-      tm.textColor=C.sub;
-    }
-
-    if(featured){
-      line.addSpacer(7);
-      let rel=line.addText(relativeDay(it.date));
-      rel.font=Font.boldSystemFont(9);
-      rel.textColor=it.soccer?C.blue:C.sub;
-    }
-
-    if(i<displayUpcoming.length-1) futureCard.addSpacer(5);
-  });
-}
 
 // freshness/version moved into header to preserve bottom space
 w.refreshAfterDate=new Date(Date.now()+CFG.refreshMinutes*60*1000);
