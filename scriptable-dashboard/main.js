@@ -1,8 +1,8 @@
-// 俺専用ダッシュボード v1.32-github
+// 俺専用ダッシュボード v1.33-github
 // Remote main for Scriptable loader.
 // IMPORTANT: Script.complete() は loader 側で呼ぶ。
 
-const VERSION = "1.32-github";
+const VERSION = "1.33-github";
 
 const USER = globalThis.ORE_DASH_CONFIG || {};
 
@@ -368,8 +368,8 @@ function futureIconName(it){
 }
 
 function futureIconColor(it){
-  if(it.source==="家族" || normalize(it.title).includes("誕生日")) return C.orange;
-  return C.blue;
+  if(it.soccer) return C.blue;
+  return C.sub;
 }
 
 function anniversary(){
@@ -543,7 +543,7 @@ const shownCount=displayUpcoming.length;
 const futureState=!upcomingData.ok?"取得失敗":(shownCount?shownCount+"件":"予定なし");
 fx=fh.addText(futureState);
 fx.font=Font.systemFont(8);
-fx.textColor=!upcomingData.ok?C.orange:(upcoming7.length?C.green:C.gray);
+fx.textColor=!upcomingData.ok?C.orange:C.gray;
 futureCard.addSpacer(4);
 
 if(!upcoming7.length){
@@ -564,7 +564,7 @@ if(!upcoming7.length){
 
     let d=line.addText(upcomingDayLabel(it.date));
     d.font=Font.boldSystemFont(10);
-    d.textColor=it.combat?C.orange:(it.soccer?C.blue:(it.color||C.blue));
+    d.textColor=it.soccer?C.blue:C.text;
     line.addSpacer(8);
 
     let title=line.addText(compactUpcomingTitle(it));
@@ -583,7 +583,7 @@ if(!upcoming7.length){
       line.addSpacer(7);
       let rel=line.addText(relativeDay(it.date));
       rel.font=Font.boldSystemFont(9);
-      rel.textColor=it.combat?C.orange:C.blue;
+      rel.textColor=it.soccer?C.blue:C.sub;
     }
 
     if(i<displayUpcoming.length-1) futureCard.addSpacer(5);
