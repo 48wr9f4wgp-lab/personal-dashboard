@@ -1,8 +1,8 @@
-// 俺専用ダッシュボード v1.39-github
+// 俺専用ダッシュボード v1.40-github
 // Remote main for Scriptable loader.
 // IMPORTANT: Script.complete() は loader 側で呼ぶ。
 
-const VERSION = "1.39-github";
+const VERSION = "1.40-github";
 
 const USER = globalThis.ORE_DASH_CONFIG || {};
 
@@ -10,9 +10,9 @@ const CFG = Object.assign({
   fallbackCity:"現在地",
   fallbackLat:35.6812,
   fallbackLon:139.7671,
-  maxEvents:6,
+  maxEvents:8,
   deadlineLookAheadDays:180,
-  deadlineMaxItems:4,
+  deadlineMaxItems:7,
   anniversaryMonth:null,
   anniversaryDay:null,
   refreshMinutes:15
@@ -417,16 +417,52 @@ const todaySchedule=eventsData.items.map(e=>{
   };
 });
 
-const scheduleRows=[
+const allScheduleRows=[
   ...todaySchedule,
   ...upcoming7
-].slice(0,6);
+];
 
-const hiddenToday=Math.max(0,(eventsData.total||0)-todaySchedule.length);
+const ROW_BUDGET=13;
+const BASE_SCHEDULE_ROWS=6;
+const BASE_DEADLINE_ROWS=4;
+const MAX_SCHEDULE_ROWS=8;
+const MAX_DEADLINE_ROWS=7;
+
+let scheduleLimit=Math.min(allScheduleRows.length,BASE_SCHEDULE_ROWS);
+let deadlineLimit=Math.min(deadlineData.items.length,BASE_DEADLINE_ROWS);
+let freeRows=Math.max(0,ROW_BUDGET-scheduleLimit-deadlineLimit);
+
+// Use spare height first for schedule, then deadlines, alternating.
+// This keeps "today / next" useful while also exposing more real deadlines.
+while(freeRows>0){
+  let added=false;
+
+  if(scheduleLimit<Math.min(allScheduleRows.length,MAX_SCHEDULE_ROWS)){
+    scheduleLimit++;
+    freeRows--;
+    added=true;
+  }
+
+  if(freeRows>0 && deadlineLimit<Math.min(deadlineData.items.length,MAX_DEADLINE_ROWS)){
+    deadlineLimit++;
+    freeRows--;
+    added=true;
+  }
+
+  if(!added) break;
+}
+
+const scheduleRows=allScheduleRows.slice(0,scheduleLimit);
+const shownDeadlines=deadlineData.items.slice(0,deadlineLimit);
+
+const totalScheduleCount=(eventsData.total||todaySchedule.length)+upcoming7.length;
+const hiddenScheduleCount=Math.max(0,totalScheduleCount-scheduleRows.length);
+const hiddenDeadlineCount=Math.max(0,deadlineData.items.length-shownDeadlines.length);
+
 const [weatherName,weatherIcon]=weatherInfo(W.code);
 
 const w=new ListWidget();
-w.setPadding(4,14,14,14);
+w.setPadding(3,14,10,14);
 const bg=new LinearGradient();bg.colors=[new Color("#D8ECFF"),new Color("#EEF7FF"),new Color("#FFFFFF")];bg.locations=[0,0.55,1];w.backgroundGradient=bg;
 
 // HEADER
@@ -457,7 +493,7 @@ w.addSpacer(2);
 // ROW1 unified schedule timeline
 const scheduleCard=mkCard(w);
 scheduleCard.size=new Size(329,0);
-scheduleCard.setPadding(8,12,8,12);
+scheduleCard.setPadding(7,12,7,12);
 
 const sh=section(scheduleCard,"calendar","予定",C.blue);
 sh.addSpacer();
@@ -465,7 +501,7 @@ sh.addSpacer();
 const schedulePartial=!eventsData.ok || !upcomingData.ok;
 const scheduleStatus=schedulePartial
   ?"一部取得失敗"
-  :(hiddenToday>0?"今日ほか"+hiddenToday+"件":(!scheduleRows.length?"予定なし":""));
+  :(hiddenScheduleCount>0?"＋"+hiddenScheduleCount:(!scheduleRows.length?"予定なし":""));
 
 if(scheduleStatus){
   let st=sh.addText(scheduleStatus);
@@ -473,7 +509,7 @@ if(scheduleStatus){
   st.textColor=schedulePartial?C.orange:C.gray;
 }
 
-scheduleCard.addSpacer(5);
+scheduleCard.addSpacer(4);
 
 if(!scheduleRows.length){
   let empty=scheduleCard.addText(schedulePartial?"予定を取得できません":"予定はありません");
@@ -523,19 +559,25 @@ if(!scheduleRows.length){
     if(i<scheduleRows.length-1){
       const next=scheduleRows[i+1];
       const endOfDayGroup=next&&!sameCalendarDay(it.date,next.date);
-      scheduleCard.addSpacer(endOfDayGroup?6:4);
+      scheduleCard.addSpacer(endOfDayGroup?5:3);
     }
   });
 
 }
-w.addSpacer(6);
+w.addSpacer(4);
 
 // ROW2 important deadlines
 const deadlineCard=mkCard(w);
 deadlineCard.size=new Size(329,0);
-deadlineCard.setPadding(8,12,8,12);
-section(deadlineCard,"exclamationmark.triangle.fill","重要期限",C.red);
-deadlineCard.addSpacer(5);
+deadlineCard.setPadding(7,12,7,12);
+const dh=section(deadlineCard,"exclamationmark.triangle.fill","重要期限",C.red);
+if(hiddenDeadlineCount>0){
+  dh.addSpacer();
+  let more=dh.addText("＋"+hiddenDeadlineCount);
+  more.font=Font.systemFont(8);
+  more.textColor=C.gray;
+}
+deadlineCard.addSpacer(4);
 
 if(!deadlineData.ok){
   t=deadlineCard.addText("取得失敗");
@@ -544,8 +586,6 @@ if(!deadlineData.ok){
   t=deadlineCard.addText("直近の重要期限なし");
   t.font=Font.mediumSystemFont(11);t.textColor=C.sub;
 }else{
-  const shownDeadlines=deadlineData.items.slice(0,CFG.deadlineMaxItems);
-
   shownDeadlines.forEach((it,i)=>{
     const urgency=deadlineColor(it.date);
     const line=deadlineCard.addStack();line.centerAlignContent();
@@ -574,7 +614,7 @@ if(!deadlineData.ok){
     rel.font=Font.boldSystemFont(9);
     rel.textColor=urgency;
 
-    if(i<shownDeadlines.length-1) deadlineCard.addSpacer(5);
+    if(i<shownDeadlines.length-1) deadlineCard.addSpacer(4);
   });
 }
 w.addSpacer(2);
