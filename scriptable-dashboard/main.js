@@ -1,8 +1,8 @@
-// 俺専用ダッシュボード v1.50-github
+// 俺専用ダッシュボード v1.51-github
 // Remote main for Scriptable loader.
 // IMPORTANT: Script.complete() は loader 側で呼ぶ。
 
-const VERSION = "1.50-github";
+const VERSION = "1.51-github";
 
 const USER = globalThis.ORE_DASH_CONFIG || {};
 const RUN_NOW = new Date();
@@ -489,8 +489,8 @@ function mediumMetrics(){
   try{screenWidth=Math.min(Device.screenSize().width,Device.screenSize().height);}catch(_){}
   const compact=screenWidth<=320||CFG.mediumCompact===true;
   const width=screenWidth<=320?272:screenWidth<=375?301:screenWidth<=414?318:344;
-  return {width,compact,top:6,bottom:8,header:46,gap:3,cardPad:5,
-    heading:compact?0:14,headingGap:compact?0:1,row:16,divider:3,
+  return {width,compact,top:5,bottom:5,header:44,gap:2,cardPad:4,
+    heading:compact?0:13,headingGap:compact?0:1,row:15,divider:2,
     forecastWidth:146,dayWidth:32,timeWidth:38,iconWidth:14,columnGap:3};
 }
 function singleText(parent,value,font,color){
@@ -559,7 +559,7 @@ if(resolveFamily()==="medium"){
   const state=mediumState(eventsData,upcomingData,deadlineData,W,position,runtime);
   const mediumDeadline=actionableDeadlines[0]||null;
   const footerNeeded=!!mediumDeadline||!deadlineData.ok;
-  const mediumRows=scheduleRows.slice(0,footerNeeded?3:4);
+  const mediumRows=scheduleRows.slice(0,footerNeeded?4:5);
   const rowCount=Math.max(1,mediumRows.length);
   const bodyHeight=M.cardPad*2+M.heading+M.headingGap+rowCount*M.row+(footerNeeded?M.divider+M.row:0);
   const budget=M.top+M.header+M.gap+bodyHeight+M.bottom;
@@ -573,8 +573,8 @@ if(resolveFamily()==="medium"){
   const left=header.addStack();left.layoutVertically();left.size=new Size(leftWidth,M.header);left.url=calendarURL();
 
   // Date and current conditions share the left side; the right side is forecast-only.
-  const dateRow=fixedRow(left,leftWidth,32);
-  const dateNumber=fixedRow(dateRow,39,32);
+  const dateRow=fixedRow(left,leftWidth,30);
+  const dateNumber=fixedRow(dateRow,39,30);
   singleText(dateNumber,RUN_NOW.getDate(),Font.boldSystemFont(26),C.text);dateRow.addSpacer(5);
   const dateMeta=dateRow.addStack();dateMeta.layoutVertically();dateMeta.size=new Size(leftWidth-44,26);
   singleText(dateMeta,(RUN_NOW.getMonth()+1)+"月 "+["日","月","火","水","木","金","土"][RUN_NOW.getDay()],Font.semiboldSystemFont(11),C.text);
@@ -596,11 +596,11 @@ if(resolveFamily()==="medium"){
   forecastGrid(W).forEach((day,i)=>{
     const cell=forecasts.addStack();cell.layoutVertically();cell.size=new Size(46,M.header);
     // Stack text alignment requires spacers, identically on all three lines.
-    centeredRow(cell,46,13,row=>singleText(row,forecastDayLabel(day.date),Font.semiboldSystemFont(10),C.sub));
-    cell.addSpacer(2);
-    centeredRow(cell,46,14,row=>icon(row,weatherInfo(day.code)[1],C.blue,14));
-    cell.addSpacer(2);
-    centeredRow(cell,46,14,row=>{
+    centeredRow(cell,46,12,row=>singleText(row,forecastDayLabel(day.date),Font.semiboldSystemFont(10),C.sub));
+    cell.addSpacer(1);
+    centeredRow(cell,46,13,row=>icon(row,weatherInfo(day.code)[1],C.blue,14));
+    cell.addSpacer(1);
+    centeredRow(cell,46,12,row=>{
       singleText(row,numberLabel(day.max),Font.semiboldSystemFont(10),C.red);
       singleText(row,"/",Font.mediumSystemFont(9),C.gray);
       singleText(row,numberLabel(day.min),Font.semiboldSystemFont(10),C.blue);
