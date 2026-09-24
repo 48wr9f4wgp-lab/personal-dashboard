@@ -1,8 +1,8 @@
-// 俺専用ダッシュボード v1.43-github
+// 俺専用ダッシュボード v1.44-github
 // Remote main for Scriptable loader.
 // IMPORTANT: Script.complete() は loader 側で呼ぶ。
 
-const VERSION = "1.43-github";
+const VERSION = "1.44-github";
 
 const USER = globalThis.ORE_DASH_CONFIG || {};
 
@@ -367,6 +367,15 @@ function compactUpcomingTitle(it){
       const m=v.match(p);
       if(m){v=m[1].trim();break;}
     }
+  }
+
+  if(it.soccer){
+    // FotMob can append competition/status notes in parentheses.
+    // The home widget only needs the fixture itself.
+    v=v
+      .replace(/\s*[（(][^）)]*[）)]\s*$/,"")
+      .replace(/\s*[|｜].*$/,"")
+      .trim();
   }
 
   return shorten(v,28);
