@@ -1,8 +1,8 @@
-// 俺専用ダッシュボード v1.44-github
+// 俺専用ダッシュボード v1.45-github
 // Remote main for Scriptable loader.
 // IMPORTANT: Script.complete() は loader 側で呼ぶ。
 
-const VERSION = "1.44-github";
+const VERSION = "1.45-github";
 
 const USER = globalThis.ORE_DASH_CONFIG || {};
 
@@ -22,11 +22,18 @@ const CFG = Object.assign({
 const DEADLINE_KEYWORDS = ["締切","〆切","期限","払込期限","納入期限","提出期限","申込期限","申請期限","回答期限","最終日","必着"];
 
 const C = {
-  text:new Color("#1E293B"), sub:new Color("#64748B"),
-  blue:new Color("#2563EB"), green:new Color("#16A34A"),
-  orange:new Color("#EA580C"), red:new Color("#DC2626"),
-  purple:new Color("#7C3AED"), gray:new Color("#94A3B8"),
-  card:new Color("#FFFFFF",0.96), weakCard:new Color("#FFFFFF",0.96)
+  bg:Color.dynamic(new Color("#F2F2F7"),new Color("#0B0B0D")),
+  text:Color.dynamic(new Color("#1D1D1F"),new Color("#F5F5F7")),
+  sub:Color.dynamic(new Color("#6E6E73"),new Color("#A1A1AA")),
+  blue:Color.dynamic(new Color("#007AFF"),new Color("#0A84FF")),
+  green:Color.dynamic(new Color("#34C759"),new Color("#30D158")),
+  orange:Color.dynamic(new Color("#FF9500"),new Color("#FF9F0A")),
+  red:Color.dynamic(new Color("#FF3B30"),new Color("#FF453A")),
+  purple:Color.dynamic(new Color("#7C3AED"),new Color("#BF5AF2")),
+  gray:Color.dynamic(new Color("#8E8E93"),new Color("#8E8E93")),
+  separator:Color.dynamic(new Color("#D1D1D6",0.75),new Color("#38383A",0.9)),
+  card:Color.dynamic(new Color("#FFFFFF",0.98),new Color("#1C1C1E",0.98)),
+  weakCard:Color.dynamic(new Color("#FFFFFF",0.96),new Color("#1C1C1E",0.96))
 };
 
 function icon(stack,name,color,size=12){const sf=SFSymbol.named(name);sf.applyFont(Font.systemFont(size));const i=stack.addImage(sf.image);i.imageSize=new Size(size,size);i.tintColor=color;return i;}
@@ -444,9 +451,172 @@ const shownDeadlines=actionableDeadlines.slice(0,CFG.deadlineMaxItems);
 
 const [weatherName,weatherIcon]=weatherInfo(W.code);
 
+// MEDIUM: Calendar replacement mode.
+// Same data source, but only the few items worth seeing at a glance.
+if(config.widgetFamily==="medium"){
+  const mw=new ListWidget();
+  mw.setPadding(8,11,8,11);
+  mw.backgroundColor=C.bg;
+
+  const mh=mw.addStack();
+  mh.centerAlignContent();
+
+  const ml=mh.addStack();
+  ml.layoutVertically();
+  let mt=ml.addText(position.city);
+  mt.font=Font.boldSystemFont(13);
+  mt.textColor=C.text;
+
+  mt=ml.addText(todayText());
+  mt.font=Font.mediumSystemFont(8);
+  mt.textColor=C.sub;
+
+  mh.addSpacer();
+
+  if(W.ok){
+    const mr=mh.addStack();
+    mr.layoutVertically();
+
+    const mwt=mr.addStack();
+    mwt.centerAlignContent();
+
+    mt=mwt.addText(W.temp+"°");
+    mt.font=Font.boldSystemFont(21);
+    mt.textColor=C.text;
+    mwt.addSpacer(5);
+
+    mt=mwt.addText(weatherName);
+    mt.font=Font.semiboldSystemFont(9);
+    mt.textColor=C.sub;
+    mwt.addSpacer(5);
+
+    icon(mwt,weatherIcon,C.blue,14);
+
+    const mwm=mr.addStack();
+    mwm.centerAlignContent();
+    mt=mwm.addText("↑"+W.max+"° ↓"+W.min+"° 降水"+W.rain+"%");
+    mt.font=Font.mediumSystemFont(8);
+    mt.textColor=C.sub;
+  }else{
+    mt=mh.addText("天気取得失敗");
+    mt.font=Font.semiboldSystemFont(9);
+    mt.textColor=C.red;
+  }
+
+  mw.addSpacer(4);
+
+  const mc=mw.addStack();
+  mc.layoutVertically();
+  mc.backgroundColor=C.card;
+  mc.cornerRadius=14;
+  mc.setPadding(6,9,6,9);
+
+  const mch=mc.addStack();
+  mch.centerAlignContent();
+  mt=mch.addText("予定");
+  mt.font=Font.boldSystemFont(11);
+  mt.textColor=C.text;
+
+  const mediumDeadline=actionableDeadlines.length?actionableDeadlines[0]:null;
+  const mediumScheduleRows=scheduleRows.slice(0,mediumDeadline?3:4);
+
+  if(!mediumScheduleRows.length){
+    mch.addSpacer();
+    mt=mch.addText("予定なし");
+    mt.font=Font.systemFont(8);
+    mt.textColor=C.gray;
+  }
+
+  mc.addSpacer(3);
+
+  mediumScheduleRows.forEach((it,i)=>{
+    const line=mc.addStack();
+    line.centerAlignContent();
+
+    const prev=i>0?mediumScheduleRows[i-1]:null;
+    const repeatDay=prev&&sameCalendarDay(prev.date,it.date);
+
+    const db=line.addStack();
+    db.size=new Size(31,0);
+    let x=db.addText(repeatDay?"":(it.today?"今日":fmtDate(it.date)));
+    x.font=Font.boldSystemFont(9);
+    x.textColor=it.today?C.blue:C.text;
+
+    line.addSpacer(3);
+
+    const tb=line.addStack();
+    tb.size=new Size(36,0);
+    x=tb.addText(fmtTime(it.date,it.allDay));
+    x.font=Font.semiboldSystemFont(8);
+    x.textColor=it.today?C.blue:C.sub;
+
+    line.addSpacer(3);
+
+    const ib=line.addStack();
+    ib.size=new Size(14,0);
+    ib.centerAlignContent();
+    if(it.combat){
+      x=ib.addText(combatEmoji(it));
+      x.font=Font.systemFont(8);
+    }else{
+      icon(ib,futureIconName(it),futureIconColor(it),8);
+    }
+
+    line.addSpacer(4);
+
+    x=line.addText(shorten(compactUpcomingTitle(it),23));
+    x.font=(it.combat||it.soccer)?Font.semiboldSystemFont(9):Font.mediumSystemFont(9);
+    x.textColor=C.text;
+    x.lineLimit=1;
+
+    if(i<mediumScheduleRows.length-1) mc.addSpacer(3);
+  });
+
+  if(mediumDeadline){
+    mc.addSpacer(4);
+
+    const sep=mc.addStack();
+    sep.size=new Size(0,1);
+    sep.backgroundColor=C.separator;
+
+    mc.addSpacer(4);
+
+    const dl=mc.addStack();
+    dl.centerAlignContent();
+
+    let x=dl.addText("期限");
+    x.font=Font.boldSystemFont(8);
+    x.textColor=C.red;
+    dl.addSpacer(5);
+
+    x=dl.addText(fmtDate(mediumDeadline.date));
+    x.font=Font.boldSystemFont(9);
+    x.textColor=C.text;
+    dl.addSpacer(5);
+
+    x=dl.addText(shorten(mediumDeadline.title,21));
+    x.font=Font.mediumSystemFont(9);
+    x.textColor=C.text;
+    x.lineLimit=1;
+
+    dl.addSpacer();
+
+    x=dl.addText(relativeDay(mediumDeadline.date));
+    x.font=Font.boldSystemFont(8);
+    x.textColor=deadlineColor(mediumDeadline.date);
+  }
+
+  mw.refreshAfterDate=new Date(Date.now()+CFG.refreshMinutes*60*1000);
+
+  if(config.runsInWidget) Script.setWidget(mw);
+  else await mw.presentMedium();
+
+  return;
+}
+
 const w=new ListWidget();
 w.setPadding(5,14,12,14);
-w.backgroundColor=new Color("#F5F5F7");
+w.backgroundColor=C.bg;
 
 // HEADER
 const header=w.addStack();header.centerAlignContent();
