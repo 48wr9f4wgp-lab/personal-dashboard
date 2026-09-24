@@ -1,8 +1,8 @@
-// 俺専用ダッシュボード v1.45-github
+// 俺専用ダッシュボード v1.46-github
 // Remote main for Scriptable loader.
 // IMPORTANT: Script.complete() は loader 側で呼ぶ。
 
-const VERSION = "1.45-github";
+const VERSION = "1.46-github";
 
 const USER = globalThis.ORE_DASH_CONFIG || {};
 
@@ -455,7 +455,7 @@ const [weatherName,weatherIcon]=weatherInfo(W.code);
 // Same data source, but only the few items worth seeing at a glance.
 if(config.widgetFamily==="medium"){
   const mw=new ListWidget();
-  mw.setPadding(8,11,8,11);
+  mw.setPadding(7,10,7,10);
   mw.backgroundColor=C.bg;
 
   const mh=mw.addStack();
@@ -464,11 +464,11 @@ if(config.widgetFamily==="medium"){
   const ml=mh.addStack();
   ml.layoutVertically();
   let mt=ml.addText(position.city);
-  mt.font=Font.boldSystemFont(13);
+  mt.font=Font.boldSystemFont(14);
   mt.textColor=C.text;
 
   mt=ml.addText(todayText());
-  mt.font=Font.mediumSystemFont(8);
+  mt.font=Font.mediumSystemFont(9);
   mt.textColor=C.sub;
 
   mh.addSpacer();
@@ -481,21 +481,21 @@ if(config.widgetFamily==="medium"){
     mwt.centerAlignContent();
 
     mt=mwt.addText(W.temp+"°");
-    mt.font=Font.boldSystemFont(21);
+    mt.font=Font.boldSystemFont(23);
     mt.textColor=C.text;
     mwt.addSpacer(5);
 
     mt=mwt.addText(weatherName);
-    mt.font=Font.semiboldSystemFont(9);
+    mt.font=Font.semiboldSystemFont(10);
     mt.textColor=C.sub;
     mwt.addSpacer(5);
 
-    icon(mwt,weatherIcon,C.blue,14);
+    icon(mwt,weatherIcon,C.blue,15);
 
     const mwm=mr.addStack();
     mwm.centerAlignContent();
     mt=mwm.addText("↑"+W.max+"° ↓"+W.min+"° 降水"+W.rain+"%");
-    mt.font=Font.mediumSystemFont(8);
+    mt.font=Font.mediumSystemFont(9);
     mt.textColor=C.sub;
   }else{
     mt=mh.addText("天気取得失敗");
@@ -503,18 +503,18 @@ if(config.widgetFamily==="medium"){
     mt.textColor=C.red;
   }
 
-  mw.addSpacer(4);
+  mw.addSpacer(5);
 
   const mc=mw.addStack();
   mc.layoutVertically();
   mc.backgroundColor=C.card;
   mc.cornerRadius=14;
-  mc.setPadding(6,9,6,9);
+  mc.setPadding(7,9,7,9);
 
   const mch=mc.addStack();
   mch.centerAlignContent();
   mt=mch.addText("予定");
-  mt.font=Font.boldSystemFont(11);
+  mt.font=Font.boldSystemFont(12);
   mt.textColor=C.text;
 
   const mediumDeadline=actionableDeadlines.length?actionableDeadlines[0]:null;
@@ -527,7 +527,7 @@ if(config.widgetFamily==="medium"){
     mt.textColor=C.gray;
   }
 
-  mc.addSpacer(3);
+  mc.addSpacer(4);
 
   mediumScheduleRows.forEach((it,i)=>{
     const line=mc.addStack();
@@ -539,7 +539,7 @@ if(config.widgetFamily==="medium"){
     const db=line.addStack();
     db.size=new Size(31,0);
     let x=db.addText(repeatDay?"":(it.today?"今日":fmtDate(it.date)));
-    x.font=Font.boldSystemFont(9);
+    x.font=Font.boldSystemFont(10);
     x.textColor=it.today?C.blue:C.text;
 
     line.addSpacer(3);
@@ -547,7 +547,7 @@ if(config.widgetFamily==="medium"){
     const tb=line.addStack();
     tb.size=new Size(36,0);
     x=tb.addText(fmtTime(it.date,it.allDay));
-    x.font=Font.semiboldSystemFont(8);
+    x.font=Font.semiboldSystemFont(9);
     x.textColor=it.today?C.blue:C.sub;
 
     line.addSpacer(3);
@@ -557,52 +557,52 @@ if(config.widgetFamily==="medium"){
     ib.centerAlignContent();
     if(it.combat){
       x=ib.addText(combatEmoji(it));
-      x.font=Font.systemFont(8);
+      x.font=Font.systemFont(9);
     }else{
-      icon(ib,futureIconName(it),futureIconColor(it),8);
+      icon(ib,futureIconName(it),futureIconColor(it),9);
     }
 
     line.addSpacer(4);
 
     x=line.addText(shorten(compactUpcomingTitle(it),23));
-    x.font=(it.combat||it.soccer)?Font.semiboldSystemFont(9):Font.mediumSystemFont(9);
+    x.font=(it.combat||it.soccer)?Font.semiboldSystemFont(10):Font.mediumSystemFont(10);
     x.textColor=C.text;
     x.lineLimit=1;
 
-    if(i<mediumScheduleRows.length-1) mc.addSpacer(3);
+    if(i<mediumScheduleRows.length-1) mc.addSpacer(4);
   });
 
   if(mediumDeadline){
-    mc.addSpacer(4);
+    mc.addSpacer(5);
 
     const sep=mc.addStack();
     sep.size=new Size(0,1);
     sep.backgroundColor=C.separator;
 
-    mc.addSpacer(4);
+    mc.addSpacer(5);
 
     const dl=mc.addStack();
     dl.centerAlignContent();
 
     let x=dl.addText("期限");
-    x.font=Font.boldSystemFont(8);
+    x.font=Font.boldSystemFont(9);
     x.textColor=C.red;
     dl.addSpacer(5);
 
     x=dl.addText(fmtDate(mediumDeadline.date));
-    x.font=Font.boldSystemFont(9);
+    x.font=Font.boldSystemFont(10);
     x.textColor=C.text;
     dl.addSpacer(5);
 
     x=dl.addText(shorten(mediumDeadline.title,21));
-    x.font=Font.mediumSystemFont(9);
+    x.font=Font.mediumSystemFont(10);
     x.textColor=C.text;
     x.lineLimit=1;
 
     dl.addSpacer();
 
     x=dl.addText(relativeDay(mediumDeadline.date));
-    x.font=Font.boldSystemFont(8);
+    x.font=Font.boldSystemFont(9);
     x.textColor=deadlineColor(mediumDeadline.date);
   }
 
