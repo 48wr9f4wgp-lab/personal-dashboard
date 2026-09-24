@@ -1,8 +1,8 @@
-// 俺専用ダッシュボード v1.47-github
+// 俺専用ダッシュボード v1.48-github
 // Remote main for Scriptable loader.
 // IMPORTANT: Script.complete() は loader 側で呼ぶ。
 
-const VERSION = "1.47-github";
+const VERSION = "1.48-github";
 
 const USER = globalThis.ORE_DASH_CONFIG || {};
 
@@ -480,20 +480,38 @@ const [weatherName,weatherIcon]=weatherInfo(W.code);
 // Same data source, but only the few items worth seeing at a glance.
 if(config.widgetFamily==="medium"){
   const mw=new ListWidget();
-  mw.setPadding(7,10,7,10);
+  mw.setPadding(6,10,6,10);
   mw.backgroundColor=C.bg;
 
   const mh=mw.addStack();
   mh.centerAlignContent();
 
+  // Left: calendar-first identity.
+  const now=new Date();
+  const weekday=["日","月","火","水","木","金","土"][now.getDay()];
+
   const ml=mh.addStack();
-  ml.layoutVertically();
-  let mt=ml.addText(position.city);
-  mt.font=Font.boldSystemFont(14);
+  ml.centerAlignContent();
+
+  let mt=ml.addText(String(now.getDate()));
+  mt.font=Font.boldSystemFont(31);
   mt.textColor=C.text;
 
-  mt=ml.addText(todayText());
-  mt.font=Font.mediumSystemFont(9);
+  ml.addSpacer(6);
+
+  const md=ml.addStack();
+  md.layoutVertically();
+
+  mt=md.addText(weekday);
+  mt.font=Font.boldSystemFont(13);
+  mt.textColor=C.text;
+
+  mt=md.addText((now.getMonth()+1)+"月");
+  mt.font=Font.mediumSystemFont(8);
+  mt.textColor=C.sub;
+
+  mt=md.addText(position.city);
+  mt.font=Font.mediumSystemFont(8);
   mt.textColor=C.sub;
 
   mh.addSpacer();
@@ -502,53 +520,63 @@ if(config.widgetFamily==="medium"){
     const mr=mh.addStack();
     mr.layoutVertically();
 
+    // Current weather.
     const mwt=mr.addStack();
     mwt.centerAlignContent();
 
     mt=mwt.addText(W.temp+"°");
-    mt.font=Font.boldSystemFont(23);
+    mt.font=Font.boldSystemFont(22);
     mt.textColor=C.text;
-    mwt.addSpacer(5);
+    mwt.addSpacer(4);
 
     mt=mwt.addText(weatherName);
-    mt.font=Font.semiboldSystemFont(10);
+    mt.font=Font.semiboldSystemFont(9);
     mt.textColor=C.sub;
-    mwt.addSpacer(5);
+    mwt.addSpacer(4);
 
-    icon(mwt,weatherIcon,C.blue,15);
+    icon(mwt,weatherIcon,C.blue,14);
 
     const mwm=mr.addStack();
     mwm.centerAlignContent();
     mt=mwm.addText("↑"+W.max+"° ↓"+W.min+"° 降水"+W.rain+"%");
-    mt.font=Font.mediumSystemFont(8);
+    mt.font=Font.mediumSystemFont(7);
     mt.textColor=C.sub;
 
+    // Next three days as three vertical cells, Weathernews-style.
     const future=(W.daily||[]).slice(1,4);
     if(future.length){
-      mr.addSpacer(2);
+      mr.addSpacer(3);
+
       const fr=mr.addStack();
       fr.centerAlignContent();
 
       future.forEach((d,i)=>{
         const cell=fr.addStack();
+        cell.layoutVertically();
         cell.centerAlignContent();
+        cell.size=new Size(41,0);
 
         let x=cell.addText(forecastDayLabel(d.date));
         x.font=Font.semiboldSystemFont(7);
         x.textColor=C.sub;
+        x.centerAlignText();
 
-        cell.addSpacer(2);
+        cell.addSpacer(1);
 
         const [,fi]=weatherInfo(d.code);
-        icon(cell,fi,C.blue,8);
+        const iconRow=cell.addStack();
+        iconRow.addSpacer();
+        icon(iconRow,fi,C.blue,10);
+        iconRow.addSpacer();
 
-        cell.addSpacer(2);
+        cell.addSpacer(1);
 
-        x=cell.addText(d.max+"/"+d.min);
+        x=cell.addText(d.max+"°/"+d.min+"°");
         x.font=Font.mediumSystemFont(7);
         x.textColor=C.sub;
+        x.centerAlignText();
 
-        if(i<future.length-1) fr.addSpacer(6);
+        if(i<future.length-1) fr.addSpacer(3);
       });
     }
   }else{
@@ -557,13 +585,13 @@ if(config.widgetFamily==="medium"){
     mt.textColor=C.red;
   }
 
-  mw.addSpacer(3);
+  mw.addSpacer(2);
 
   const mc=mw.addStack();
   mc.layoutVertically();
   mc.backgroundColor=C.card;
   mc.cornerRadius=14;
-  mc.setPadding(6,9,6,9);
+  mc.setPadding(5,9,5,9);
 
   const mch=mc.addStack();
   mch.centerAlignContent();
