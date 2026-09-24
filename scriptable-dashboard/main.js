@@ -1,8 +1,8 @@
-// 俺専用ダッシュボード v1.37-github
+// 俺専用ダッシュボード v1.38-github
 // Remote main for Scriptable loader.
 // IMPORTANT: Script.complete() は loader 側で呼ぶ。
 
-const VERSION = "1.37-github";
+const VERSION = "1.38-github";
 
 const USER = globalThis.ORE_DASH_CONFIG || {};
 
@@ -426,7 +426,7 @@ const hiddenToday=Math.max(0,(eventsData.total||0)-todaySchedule.length);
 const [weatherName,weatherIcon]=weatherInfo(W.code);
 
 const w=new ListWidget();
-w.setPadding(9,14,14,14);
+w.setPadding(6,14,14,14);
 const bg=new LinearGradient();bg.colors=[new Color("#D8ECFF"),new Color("#EEF7FF"),new Color("#FFFFFF")];bg.locations=[0,0.55,1];w.backgroundGradient=bg;
 
 // HEADER
@@ -580,6 +580,9 @@ if(!deadlineData.ok){
 
 }
 w.addSpacer(2);
+
+// Anchor content to top; remaining vertical space goes below the cards.
+w.addSpacer();
 
 // freshness/version moved into header to preserve bottom space
 w.refreshAfterDate=new Date(Date.now()+CFG.refreshMinutes*60*1000);
