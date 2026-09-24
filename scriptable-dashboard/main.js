@@ -1,8 +1,8 @@
-// 俺専用ダッシュボード v1.31-github
+// 俺専用ダッシュボード v1.32-github
 // Remote main for Scriptable loader.
 // IMPORTANT: Script.complete() は loader 側で呼ぶ。
 
-const VERSION = "1.31-github";
+const VERSION = "1.32-github";
 
 const USER = globalThis.ORE_DASH_CONFIG || {};
 
@@ -399,7 +399,7 @@ const displayUpcoming=upcoming7.slice(0,4);
 const [weatherName,weatherIcon]=weatherInfo(W.code);
 
 const w=new ListWidget();
-w.setPadding(12,14,9,14);
+w.setPadding(9,14,12,14);
 const bg=new LinearGradient();bg.colors=[new Color("#D8ECFF"),new Color("#EEF7FF"),new Color("#FFFFFF")];bg.locations=[0,0.55,1];w.backgroundGradient=bg;
 
 // HEADER
@@ -425,13 +425,13 @@ if(W.ok){
   t=liveMeta.addText(stateLabel);t.font=Font.systemFont(7);t.textColor=dataHealthy?C.gray:C.orange;
   const liveRel=liveMeta.addDate(fetchedAt);liveRel.applyRelativeStyle();liveRel.font=Font.systemFont(7);liveRel.textColor=C.gray;
 }else{t=header.addText("天気取得失敗");t.font=Font.semiboldSystemFont(10);t.textColor=C.red;}
-w.addSpacer(4);
+w.addSpacer(2);
 
 // ROW1 full-width today
 if(!eventsData.ok){
   const eventCard=mkCard(w);
-  eventCard.size=new Size(329,52);
-  eventCard.setPadding(9,12,9,12);
+  eventCard.size=new Size(329,46);
+  eventCard.setPadding(7,12,7,12);
   const line=eventCard.addStack();line.centerAlignContent();
   icon(line,"calendar",C.blue,12);line.addSpacer(6);
   let tx=line.addText("今日の予定");tx.font=Font.boldSystemFont(12);tx.textColor=C.text;
@@ -439,7 +439,7 @@ if(!eventsData.ok){
   tx=line.addText("取得失敗");tx.font=Font.systemFont(10);tx.textColor=C.red;
 }else if(!eventsData.items.length){
   const eventCard=mkCard(w);
-  eventCard.size=new Size(329,48);
+  eventCard.size=new Size(329,44);
   eventCard.setPadding(9,12,9,12);
   const line=eventCard.addStack();line.centerAlignContent();
   icon(line,"calendar",C.blue,12);line.addSpacer(6);
@@ -448,16 +448,16 @@ if(!eventsData.ok){
   tx=line.addText("今日は予定なし");tx.font=Font.systemFont(10);tx.textColor=C.sub;
 }else{
   const eventCard=mkCard(w);
-  const eventHeight=Math.min(102,54+eventsData.items.length*18);
+  const eventHeight=Math.min(92,46+eventsData.items.length*15);
   eventCard.size=new Size(329,eventHeight);
-  eventCard.setPadding(10,12,10,12);
+  eventCard.setPadding(7,12,7,12);
   const eh=section(eventCard,"calendar","今日の予定",C.blue);
   if(eventsData.total>eventsData.items.length){
     eh.addSpacer();
     let more=eh.addText("ほか"+(eventsData.total-eventsData.items.length)+"件");
     more.font=Font.systemFont(8);more.textColor=C.gray;
   }
-  eventCard.addSpacer(6);
+  eventCard.addSpacer(4);
 
   eventsData.items.forEach((e,i)=>{
     const l=eventCard.addStack();l.centerAlignContent();
@@ -472,17 +472,17 @@ if(!eventsData.ok){
     x.textColor=C.text;
     x.lineLimit=1;
 
-    if(i<eventsData.items.length-1)eventCard.addSpacer(4);
+    if(i<eventsData.items.length-1)eventCard.addSpacer(3);
   });
 }
-w.addSpacer(4);
+w.addSpacer(2);
 
 // ROW2 important deadlines
 const deadlineCard=mkCard(w);
 deadlineCard.size=new Size(329,0);
-deadlineCard.setPadding(10,12,10,12);
+deadlineCard.setPadding(7,12,7,12);
 section(deadlineCard,"exclamationmark.triangle.fill","重要期限",C.red);
-deadlineCard.addSpacer(7);
+deadlineCard.addSpacer(4);
 
 if(!deadlineData.ok){
   t=deadlineCard.addText("取得失敗");
@@ -510,30 +510,30 @@ if(!deadlineData.ok){
     rel.font=Font.boldSystemFont(10);
     rel.textColor=urgency;
 
-    deadlineCard.addSpacer(2);
+    deadlineCard.addSpacer(1);
 
     let title=deadlineCard.addText(shorten(it.title,32));
     title.font=Font.systemFont(11);
     title.textColor=C.text;
     title.lineLimit=1;
 
-    if(i<shownDeadlines.length-1)deadlineCard.addSpacer(8);
+    if(i<shownDeadlines.length-1)deadlineCard.addSpacer(5);
   });
 
   if(extraDeadlines>0){
-    deadlineCard.addSpacer(6);
+    deadlineCard.addSpacer(3);
     const more=deadlineCard.addStack();more.centerAlignContent();more.addSpacer();
     let plus=more.addText("ほかにも期限あり");
     plus.font=Font.systemFont(8);
     plus.textColor=C.gray;
   }
 }
-w.addSpacer(4);
+w.addSpacer(2);
 
 // ROW4 rolling next events
 const futureCard=w.addStack();futureCard.layoutVertically();futureCard.size=new Size(329,0);
 futureCard.backgroundColor=C.weakCard;futureCard.cornerRadius=12;
-futureCard.setPadding(11,12,11,12);
+futureCard.setPadding(7,12,7,12);
 
 let fh=futureCard.addStack();fh.centerAlignContent();
 icon(fh,"calendar.badge.clock",C.blue,11);fh.addSpacer(5);
@@ -544,7 +544,7 @@ const futureState=!upcomingData.ok?"取得失敗":(shownCount?shownCount+"件":"
 fx=fh.addText(futureState);
 fx.font=Font.systemFont(8);
 fx.textColor=!upcomingData.ok?C.orange:(upcoming7.length?C.green:C.gray);
-futureCard.addSpacer(5);
+futureCard.addSpacer(4);
 
 if(!upcoming7.length){
   fx=futureCard.addText(upcomingData.ok?"重要な予定はありません":"カレンダーを取得できません");
@@ -586,7 +586,7 @@ if(!upcoming7.length){
       rel.textColor=it.combat?C.orange:C.blue;
     }
 
-    if(i<displayUpcoming.length-1) futureCard.addSpacer(9);
+    if(i<displayUpcoming.length-1) futureCard.addSpacer(5);
   });
 }
 
