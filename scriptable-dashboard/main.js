@@ -1,8 +1,8 @@
-// 俺専用ダッシュボード v1.48-github
+// 俺専用ダッシュボード v1.49-github
 // Remote main for Scriptable loader.
 // IMPORTANT: Script.complete() は loader 側で呼ぶ。
 
-const VERSION = "1.48-github";
+const VERSION = "1.49-github";
 
 const USER = globalThis.ORE_DASH_CONFIG || {};
 
@@ -519,13 +519,14 @@ if(config.widgetFamily==="medium"){
   if(W.ok){
     const mr=mh.addStack();
     mr.layoutVertically();
+    mr.size=new Size(176,0);
 
     // Current weather.
     const mwt=mr.addStack();
     mwt.centerAlignContent();
 
     mt=mwt.addText(W.temp+"°");
-    mt.font=Font.boldSystemFont(22);
+    mt.font=Font.boldSystemFont(24);
     mt.textColor=C.text;
     mwt.addSpacer(4);
 
@@ -538,8 +539,8 @@ if(config.widgetFamily==="medium"){
 
     const mwm=mr.addStack();
     mwm.centerAlignContent();
-    mt=mwm.addText("↑"+W.max+"° ↓"+W.min+"° 降水"+W.rain+"%");
-    mt.font=Font.mediumSystemFont(7);
+    mt=mwm.addText("↑"+W.max+"° ↓"+W.min+"°  降水"+W.rain+"%");
+    mt.font=Font.mediumSystemFont(8);
     mt.textColor=C.sub;
 
     // Next three days as three vertical cells, Weathernews-style.
@@ -554,29 +555,42 @@ if(config.widgetFamily==="medium"){
         const cell=fr.addStack();
         cell.layoutVertically();
         cell.centerAlignContent();
-        cell.size=new Size(41,0);
+        cell.size=new Size(52,0);
 
         let x=cell.addText(forecastDayLabel(d.date));
-        x.font=Font.semiboldSystemFont(7);
+        x.font=Font.semiboldSystemFont(8);
         x.textColor=C.sub;
         x.centerAlignText();
 
-        cell.addSpacer(1);
+        cell.addSpacer(2);
 
         const [,fi]=weatherInfo(d.code);
         const iconRow=cell.addStack();
         iconRow.addSpacer();
-        icon(iconRow,fi,C.blue,10);
+        icon(iconRow,fi,C.blue,12);
         iconRow.addSpacer();
 
-        cell.addSpacer(1);
+        cell.addSpacer(2);
 
-        x=cell.addText(d.max+"°/"+d.min+"°");
-        x.font=Font.mediumSystemFont(7);
-        x.textColor=C.sub;
-        x.centerAlignText();
+        const temps=cell.addStack();
+        temps.centerAlignContent();
+        temps.addSpacer();
 
-        if(i<future.length-1) fr.addSpacer(3);
+        x=temps.addText(String(d.max));
+        x.font=Font.semiboldSystemFont(8);
+        x.textColor=C.red;
+
+        x=temps.addText("/");
+        x.font=Font.systemFont(7);
+        x.textColor=C.gray;
+
+        x=temps.addText(String(d.min));
+        x.font=Font.semiboldSystemFont(8);
+        x.textColor=C.blue;
+
+        temps.addSpacer();
+
+        if(i<future.length-1) fr.addSpacer(4);
       });
     }
   }else{
@@ -585,7 +599,7 @@ if(config.widgetFamily==="medium"){
     mt.textColor=C.red;
   }
 
-  mw.addSpacer(2);
+  mw.addSpacer(3);
 
   const mc=mw.addStack();
   mc.layoutVertically();
