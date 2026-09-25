@@ -1,8 +1,8 @@
-// 俺専用ダッシュボード v1.52-github
+// 俺専用ダッシュボード v1.53-github
 // Remote main for Scriptable loader.
 // IMPORTANT: Script.complete() は loader 側で呼ぶ。
 
-const VERSION = "1.52-github";
+const VERSION = "1.53-github";
 
 const USER = globalThis.ORE_DASH_CONFIG || {};
 const RUN_NOW = new Date();
@@ -491,7 +491,7 @@ function mediumMetrics(){
   const width=screenWidth<=320?272:screenWidth<=375?301:screenWidth<=414?318:344;
   return {width,compact,top:4,bottom:5,header:44,gap:2,cardPad:4,
     heading:compact?0:13,headingGap:compact?0:1,row:15,divider:3,
-    forecastWidth:146,dayWidth:32,timeWidth:38,iconWidth:14,columnGap:3};
+    forecastWidth:146,dayWidth:38,timeWidth:44,iconWidth:14,columnGap:3};
 }
 function singleText(parent,value,font,color){
   const t=parent.addText(String(value));t.font=font;t.textColor=color;t.lineLimit=1;t.minimumScaleFactor=1;return t;
