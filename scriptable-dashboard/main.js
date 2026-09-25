@@ -1,8 +1,8 @@
-// 俺専用ダッシュボード v1.53-github
+// 俺専用ダッシュボード v1.54-github
 // Remote main for Scriptable loader.
 // IMPORTANT: Script.complete() は loader 側で呼ぶ。
 
-const VERSION = "1.53-github";
+const VERSION = "1.54-github";
 
 const USER = globalThis.ORE_DASH_CONFIG || {};
 const RUN_NOW = new Date();
@@ -75,12 +75,45 @@ async function getPosition(){
   }catch(_){return {ok:false,city:CFG.fallbackCity,lat:CFG.fallbackLat,lon:CFG.fallbackLon};}
 }
 
+// The age threshold is a display safety policy, not a forecast-accuracy claim.
+const WEATHER_MAX_AGE_MS=90*60*1000;
+const WEATHER_FUTURE_TOLERANCE_MS=15*60*1000;
+function weatherTimestamp(value,offsetSeconds){
+  const m=/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2}))?(Z|[+-]\d{2}:?\d{2})?$/.exec(String(value||""));
+  if(!m||!parseISODate(m[1]+"-"+m[2]+"-"+m[3])||+m[4]>23||+m[5]>59||+(m[6]||0)>59)return null;
+  let offset=numberOrNull(offsetSeconds);
+  if(m[7]){
+    if(m[7]==="Z")offset=0;
+    else{
+      const tz=/^([+-])(\d{2}):?(\d{2})$/.exec(m[7]);
+      if(+tz[2]>14||+tz[3]>59||(+tz[2]===14&&+tz[3]!==0))return null;
+      offset=(tz[1]==="-"?-1:1)*(+tz[2]*3600 + +tz[3]*60);
+    }
+  }
+  if(offset===null||!Number.isInteger(offset)||Math.abs(offset)>14*3600)return null;
+  const ms=Date.UTC(+m[1],+m[2]-1,+m[3],+m[4],+m[5],+(m[6]||0))-offset*1000;
+  return Number.isFinite(ms)?new Date(ms):null;
+}
+function weatherFailureText(weather){
+  if(weather.stale)return "天気データ古い";
+  if(weather.timeUnverified)return "天気時刻不明";
+  return "天気を取得できません";
+}
 async function getWeather(pos){
-  const missing={ok:false,partial:true,temp:null,code:-1,isDay:null,max:null,min:null,rain:null,daily:[]};
+  const missing={ok:false,partial:true,stale:false,timeUnverified:false,
+    temp:null,code:-1,isDay:null,max:null,min:null,rain:null,daily:[],localDate:isoDay(RUN_NOW)};
   try{
     const u="https://api.open-meteo.com/v1/forecast?latitude="+pos.lat+"&longitude="+pos.lon+"&current=temperature_2m,weather_code,is_day&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max&timezone=auto&forecast_days=4";
     const r=new Request(u);r.timeoutInterval=10;const j=await r.loadJSON();
     if(!j||j.error||!j.current)return missing;
+    const receivedAt=new Date();
+    const rawOffset=numberOrNull(j.utc_offset_seconds);
+    const offset=rawOffset!==null&&Number.isInteger(rawOffset)&&Math.abs(rawOffset)<=14*3600?rawOffset:null;
+    const localDate=offset===null?isoDay(receivedAt):new Date(receivedAt.getTime()+offset*1000).toISOString().slice(0,10);
+    const validAt=weatherTimestamp(j.current.time,offset);
+    const ageMs=validAt?receivedAt.getTime()-validAt.getTime():null;
+    const stale=ageMs!==null&&ageMs>WEATHER_MAX_AGE_MS;
+    const timeUnverified=validAt===null||offset===null||(ageMs!==null&&ageMs < -WEATHER_FUTURE_TOLERANCE_MS);
     const d=j.daily||{};
     const read=(key,i)=>Array.isArray(d[key])?d[key][i]:null;
     const daily=(Array.isArray(d.time)?d.time:[]).map((date,i)=>({
@@ -89,11 +122,13 @@ async function getWeather(pos){
     })).filter(day=>parseISODate(day.date));
     const temp=roundedOrNull(j.current.temperature_2m),code=numberOrNull(j.current.weather_code);
     const isDay=j.current.is_day===0?false:j.current.is_day===1?true:null;
-    const first=daily[0]||{};
-    const partial=daily.length<4||isDay===null||daily.some(day=>[day.code,day.max,day.min,day.rain].some(x=>x===null));
-    return {ok:temp!==null&&code!==null,partial,temp,code:code===null?-1:code,isDay,
-      max:first.max??null,min:first.min??null,rain:first.rain??null,daily,
-      localDate:parseISODate(String(j.current.time||"").slice(0,10))?String(j.current.time).slice(0,10):isoDay(RUN_NOW)};
+    const first=daily.find(day=>day.date===localDate)||{};
+    const base=parseISODate(localDate);
+    const required=[0,1,2,3].map(n=>daily.find(day=>day.date===isoDay(addDays(base,n))));
+    const partial=stale||timeUnverified||isDay===null||required.some(day=>!day||[day.code,day.max,day.min,day.rain].some(x=>x===null));
+    return {ok:temp!==null&&code!==null,partial,stale,timeUnverified,temp,code:code===null?-1:code,isDay,
+      max:first.max??null,min:first.min??null,rain:first.rain??null,daily,localDate,
+      validAt,receivedAt,sourceLocalDate:String(j.current.time||"").slice(0,10)};
   }catch(_){return missing;}
 }
 
@@ -208,7 +243,7 @@ function isHolidayCalendarTitle(title){
 function isInactiveTitle(title){
   const t=normalize(title);
   // Explicit status markers also work after a calendar/category prefix.
-  if(/[【\[](?:完了|中止|取消|キャンセル)[】\]]/.test(t))return true;
+  if(/[【\[(（]\s*(?:完了|中止|取消|キャンセル|cancelled|canceled)\s*[】\])）]/iu.test(t))return true;
   return /(?:^|[|｜\s])(?:✅|☑️?|完了[：:\s]|中止[：:\s]|取消[：:\s]|キャンセル[：:\s])/u.test(t);
 }
 
@@ -403,15 +438,57 @@ function compactUpcomingTitle(it){
   }
 
   if(it.soccer){
-    // FotMob can append competition/status notes in parentheses.
-    // The home widget only needs the fixture itself.
-    v=v
-      .replace(/\s*[（(][^）)]*[）)]\s*$/,"")
-      .replace(/\s*[|｜].*$/,"")
-      .trim();
+    // Only remove known source labels. Match status and class identifiers remain visible.
+    v=safeSoccerTitle(v);
   }
 
   return shorten(v,28);
+}
+
+// Unknown suffixes are kept. Important tags go first so narrow rows do not hide them.
+function safeSoccerTitle(value){
+  const original=normalize(value), labels=[];
+  const provider=/^(?:fotmob(?:\.com)?|フットモブ)$/i;
+  const important=/^(?:中止|取消|キャンセル|延期|順延|中断|cancelled|canceled|postponed|suspended|U[-\s‐‑–]?\d{1,2}|女子|女子代表|男子|男子代表|women|men|women's|men's)$/i;
+  const remember=label=>{
+    if(!labels.some(x=>x.toLowerCase()===label.toLowerCase()))labels.push(label);
+  };
+  const cleaned=original.split(/[|｜]/).map(part=>{
+    let text=normalize(part);
+    if(provider.test(text))return "";
+    if(important.test(text)){remember(text);return "";}
+    text=text.replace(/[（(【\[]([^（）()【】\[\]]+)[）)】\]]/gu,(whole,inside)=>{
+      const label=normalize(inside);
+      if(provider.test(label))return "";
+      if(important.test(label)){remember(label);return "";}
+      return whole;
+    });
+    return normalize(text);
+  }).filter(Boolean).join(" | ");
+  return labels.map(label=>"【"+label+"】").join("")+(cleaned||(!labels.length?original:""));
+}
+
+// A fixed-size image avoids text-layout compression of a single emoji in a narrow cell.
+// The image is rendered on-device with the system emoji font; it is not a downloaded asset.
+const COMBAT_ICON_CACHE=new Map();
+function combatIcon(parent,item,size=12){
+  const emoji=combatEmoji(item);
+  try{
+    let image=COMBAT_ICON_CACHE.get(emoji);
+    if(!image){
+      const ctx=new DrawContext();ctx.size=new Size(32,32);
+      ctx.opaque=false;ctx.respectScreenScale=true;
+      ctx.setFont(Font.systemFont(24));ctx.setTextColor(new Color("#000000"));
+      ctx.setTextAlignedCenter();ctx.drawTextInRect(emoji,new Rect(1,0,30,32));
+      image=ctx.getImage();if(!image)throw new Error("Emoji image unavailable");
+      COMBAT_ICON_CACHE.set(emoji,image);
+    }
+    const view=parent.addImage(image);view.imageSize=new Size(size,size);
+    view.applyFittingContentMode();return view;
+  }catch(_){
+    // Retain a visible image marker when offscreen emoji drawing is unavailable.
+    return icon(parent,emoji==="🥊"?"figure.boxing":"sportscourt",C.sub,size);
+  }
 }
 
 function combatEmoji(it){
@@ -474,7 +551,10 @@ function forecastGrid(weather,now=RUN_NOW){
   const base=parseISODate(weather.localDate)||dayStart(now);
   return [1,2,3].map(offset=>{
     const date=isoDay(addDays(base,offset));
-    return (weather.daily||[]).find(day=>day.date===date)||{date,code:null,max:null,min:null,rain:null};
+    // Stale/undated responses are not presented as a fresh next-three-days forecast.
+    const empty={date,code:null,max:null,min:null,rain:null};
+    if(!weather.ok||weather.stale||weather.timeUnverified)return empty;
+    return (weather.daily||[]).find(day=>day.date===date)||empty;
   });
 }
 function nextRefresh(){
@@ -507,6 +587,8 @@ function mediumState(events,future,deadlines,weather,position,runtime){
   if(!deadlines.ok)issues.push("期限未取得");
   if(!position.ok)issues.push("予備地点");
   if(!weather.ok)issues.push("天気未取得");
+  else if(weather.stale)issues.push("天気データ古い");
+  else if(weather.timeUnverified)issues.push("天気時刻不明");
   else if(weather.partial)issues.push("予報一部未取得");
   if(runtime.codeSource==="lastGood")issues.push("前回コード");
   return {issues,label:issues.length>1?"一部未取得":(issues[0]||"")};
@@ -584,12 +666,12 @@ if(resolveFamily()==="medium"){
   const current=fixedRow(left,leftWidth,14);
   if(M.compact&&state.label){
     singleText(current,state.label,Font.semiboldSystemFont(10),C.orange);
-  }else if(W.ok){
+  }else if(W.ok&&!W.stale&&!W.timeUnverified){
     singleText(current,numberLabel(W.temp)+"°",Font.semiboldSystemFont(11),C.text);current.addSpacer(4);
     icon(current,weatherIcon,C.sub,11);current.addSpacer(4);
     singleText(current,"今日降水"+numberLabel(W.rain)+"%",Font.mediumSystemFont(9),C.sub);
   }else{
-    singleText(current,"天気を取得できません",Font.mediumSystemFont(10),C.orange);
+    singleText(current,weatherFailureText(W),Font.mediumSystemFont(10),C.orange);
   }
   current.addSpacer();header.addSpacer(8);
 
@@ -618,6 +700,10 @@ if(resolveFamily()==="medium"){
     singleText(head,"予定",Font.boldSystemFont(11),C.text);head.addSpacer();
     if(state.label)singleText(head,state.label,Font.semiboldSystemFont(9),C.orange);
     else if(!config.runsInWidget)singleText(head,"v"+VERSION.replace("-github",""),Font.mediumSystemFont(8),C.sub);
+    head.addSpacer(4);
+    singleText(head,"表示 ",Font.mediumSystemFont(8),C.sub);
+    const age=head.addDate(fetchedAt);age.applyRelativeStyle();
+    age.font=Font.mediumSystemFont(8);age.textColor=C.sub;age.lineLimit=1;age.minimumScaleFactor=1;
     card.addSpacer(M.headingGap);
   }
 
@@ -640,7 +726,7 @@ if(resolveFamily()==="medium"){
     const ib=fixedRow(row,M.iconWidth,M.row);
     if(item){
       ib.addSpacer();
-      if(item.combat)singleText(ib,combatEmoji(item),Font.systemFont(10),C.sub);
+      if(item.combat)combatIcon(ib,item,12);
       else icon(ib,futureIconName(item),C.sub,10);
       ib.addSpacer();
     }else{
@@ -696,7 +782,7 @@ const left=header.addStack();left.layoutVertically();
 let t=left.addText(position.city);t.font=Font.boldSystemFont(19);t.textColor=C.text;
 t=left.addText(todayText());t.font=Font.mediumSystemFont(11);t.textColor=C.sub;
 header.addSpacer();
-if(W.ok){
+if(W.ok&&!W.stale&&!W.timeUnverified){
   const weatherBox=header.addStack();weatherBox.layoutVertically();
   const weatherTop=weatherBox.addStack();weatherTop.centerAlignContent();
   t=weatherTop.addText(W.temp+"°");t.font=Font.boldSystemFont(31);t.textColor=C.text;weatherTop.addSpacer(7);
@@ -713,7 +799,7 @@ if(W.ok){
   const stateLabel=cachedCode?"前回コード ":!position.ok?"予備地点 ":(!dataHealthy?"一部取得失敗 ":"更新 ");
   t=liveMeta.addText(stateLabel);t.font=Font.systemFont(8);t.textColor=dataHealthy?C.gray:C.orange;
   const liveRel=liveMeta.addDate(fetchedAt);liveRel.applyRelativeStyle();liveRel.font=Font.systemFont(8);liveRel.textColor=C.gray;
-}else{t=header.addText("天気取得失敗");t.font=Font.semiboldSystemFont(10);t.textColor=C.red;}
+}else{t=header.addText(weatherFailureText(W));t.font=Font.semiboldSystemFont(10);t.textColor=C.red;}
 w.addSpacer(2);
 
 // ROW1 unified schedule timeline
@@ -743,7 +829,7 @@ scheduleCard.addSpacer(6);
 if(!scheduleRows.length){
   let empty=scheduleCard.addText(schedulePartial?"予定を取得できません":"予定はありません");
   empty.font=Font.mediumSystemFont(10);
-  empty.textColor=schedulePartial?C.orange:C.sub;
+  empty.textColor=C.sub;
 }else{
   scheduleRows.forEach((it,i)=>{
     const line=scheduleCard.addStack();line.centerAlignContent();
