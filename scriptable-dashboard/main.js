@@ -1,8 +1,8 @@
-// 俺専用ダッシュボード v1.59-github
+// 俺専用ダッシュボード v1.60-github
 // Remote main for Scriptable loader.
 // IMPORTANT: Script.complete() は loader 側で呼ぶ。
 
-const VERSION = "1.59-github";
+const VERSION = "1.60-github";
 
 const USER = globalThis.ORE_DASH_CONFIG || {};
 const RUN_NOW = new Date();
@@ -771,7 +771,7 @@ if(resolveFamily()==="medium"){
   return;
 }
 
-// LARGE v1.59: final header separation with slight weather offset.
+// LARGE v1.60: unified two-row weather header grid.
 // Same data/design language as Medium, but uses the extra area for broader context.
 const L={width:329,dayWidth:38,timeWidth:44,iconWidth:14,columnGap:3};
 const runtime=globalThis.ORE_DASH_RUNTIME||{};
@@ -786,63 +786,65 @@ w.url=calendarURL();
 // OVERVIEW HEADER
 const header=w.addStack();header.layoutVertically();header.size=new Size(L.width,0);
 
-// Row 1: place/date and current conditions are independent visual blocks.
-const headerTop=header.addStack();headerTop.centerAlignContent();headerTop.size=new Size(L.width,0);
-const placeWidth=112;
-const currentWidth=L.width-placeWidth-20;
+// Top weather area is one two-row grid, not separate floating blocks.
+const headerNameWidth=112;
+const headerGap=12;
+const headerWeatherWidth=L.width-headerNameWidth-headerGap;
 
-const place=headerTop.addStack();place.layoutVertically();place.size=new Size(placeWidth,0);
+// Row 1: city | current temperature + condition.
+const headerLine1=fixedRow(header,L.width,27);
 
-let t=place.addText((position.ok?"":"予備 ")+position.city);
+const cityBox=fixedRow(headerLine1,headerNameWidth,27);
+let t=cityBox.addText((position.ok?"":"予備 ")+position.city);
 t.font=Font.boldSystemFont(17);t.textColor=C.text;t.lineLimit=1;t.minimumScaleFactor=0.85;
-t=place.addText(todayText());
-t.font=Font.mediumSystemFont(10);t.textColor=C.sub;t.lineLimit=1;
+cityBox.addSpacer();
 
-headerTop.addSpacer(20);
+headerLine1.addSpacer(headerGap);
+
+const currentBox=fixedRow(headerLine1,headerWeatherWidth,27);
+if(W.ok&&!W.stale&&!W.timeUnverified){
+  currentBox.addSpacer();
+  t=currentBox.addText(numberLabel(W.temp)+"°");
+  t.font=Font.boldSystemFont(31);t.textColor=C.text;t.lineLimit=1;
+  currentBox.addSpacer(7);
+
+  t=currentBox.addText(weatherName);
+  t.font=Font.semiboldSystemFont(12);t.textColor=C.sub;t.lineLimit=1;
+  currentBox.addSpacer(6);
+  icon(currentBox,weatherIcon,C.blue,22);
+}else{
+  currentBox.addSpacer();
+  t=currentBox.addText(weatherFailureText(W));
+  t.font=Font.semiboldSystemFont(10);t.textColor=C.orange;t.lineLimit=1;
+}
+
+// Row 2: date | high/low/rain + freshness or warning.
+const headerLine2=fixedRow(header,L.width,15);
+
+const dateBox=fixedRow(headerLine2,headerNameWidth,15);
+t=dateBox.addText(todayText());
+t.font=Font.mediumSystemFont(10);t.textColor=C.sub;t.lineLimit=1;
+dateBox.addSpacer();
+
+headerLine2.addSpacer(headerGap);
+
+const metaBox=fixedRow(headerLine2,headerWeatherWidth,15);
+metaBox.addSpacer();
 
 if(W.ok&&!W.stale&&!W.timeUnverified){
-  const current=headerTop.addStack();current.layoutVertically();current.size=new Size(currentWidth,0);
-  current.addSpacer(3);
-
-  const currentTop=current.addStack();currentTop.centerAlignContent();
-  currentTop.addSpacer();
-  t=currentTop.addText(numberLabel(W.temp)+"°");
-  t.font=Font.boldSystemFont(31);t.textColor=C.text;
-  currentTop.addSpacer(7);
-
-  t=currentTop.addText(weatherName);
-  t.font=Font.semiboldSystemFont(12);t.textColor=C.sub;
-  currentTop.addSpacer(6);
-  icon(currentTop,weatherIcon,C.blue,22);
-
-  current.addSpacer(1);
-
-  const currentMeta=current.addStack();currentMeta.centerAlignContent();
-  currentMeta.addSpacer();
-  t=currentMeta.addText("↑"+numberLabel(W.max)+"°  ↓"+numberLabel(W.min)+"°  降水"+numberLabel(W.rain)+"%");
+  t=metaBox.addText("↑"+numberLabel(W.max)+"°  ↓"+numberLabel(W.min)+"°  降水"+numberLabel(W.rain)+"%");
   t.font=Font.mediumSystemFont(10);t.textColor=C.sub;t.lineLimit=1;
+  metaBox.addSpacer(7);
+}
 
-  // Freshness belongs under current conditions and aligns with the weather block.
-  current.addSpacer(1);
-  const currentHealth=current.addStack();currentHealth.centerAlignContent();
-  currentHealth.addSpacer();
-  const healthy=!largeState.label;
-  t=currentHealth.addText("●");
-  t.font=Font.systemFont(7);t.textColor=healthy?C.green:C.orange;
-  currentHealth.addSpacer(3);
-  if(largeState.label){
-    t=currentHealth.addText(shorten(largeState.label,10));
-    t.font=Font.systemFont(8);t.textColor=C.orange;t.lineLimit=1;
-  }else{
-    t=currentHealth.addText("表示 ");
-    t.font=Font.systemFont(8);t.textColor=C.gray;
-    const age=currentHealth.addDate(fetchedAt);age.applyRelativeStyle();
-    age.font=Font.systemFont(8);age.textColor=C.gray;age.lineLimit=1;age.minimumScaleFactor=1;
-  }
+if(largeState.label){
+  t=metaBox.addText(shorten(largeState.label,9));
+  t.font=Font.systemFont(8);t.textColor=C.orange;t.lineLimit=1;
 }else{
-  const err=headerTop.addStack();err.size=new Size(currentWidth,0);err.centerAlignContent();err.addSpacer();
-  t=err.addText(weatherFailureText(W));
-  t.font=Font.semiboldSystemFont(10);t.textColor=C.orange;t.lineLimit=1;
+  t=metaBox.addText("表示 ");
+  t.font=Font.systemFont(8);t.textColor=C.gray;t.lineLimit=1;
+  const age=metaBox.addDate(fetchedAt);age.applyRelativeStyle();
+  age.font=Font.systemFont(8);age.textColor=C.gray;age.lineLimit=1;age.minimumScaleFactor=1;
 }
 
 header.addSpacer(6);
