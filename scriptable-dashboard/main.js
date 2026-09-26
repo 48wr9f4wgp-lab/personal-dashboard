@@ -1,8 +1,8 @@
-// 俺専用ダッシュボード v1.61-github
+// 俺専用ダッシュボード v1.62-github
 // Remote main for Scriptable loader.
 // IMPORTANT: Script.complete() は loader 側で呼ぶ。
 
-const VERSION = "1.61-github";
+const VERSION = "1.62-github";
 
 const USER = globalThis.ORE_DASH_CONFIG || {};
 const RUN_NOW = new Date();
@@ -771,7 +771,7 @@ if(resolveFamily()==="medium"){
   return;
 }
 
-// LARGE v1.61: date-first header hierarchy; forecast strip unchanged.
+// LARGE v1.62: date-first header with compact subordinate forecast rail.
 // Same data/design language as Medium, but uses the extra area for broader context.
 const L={width:329,dayWidth:38,timeWidth:44,iconWidth:14,columnGap:3};
 const runtime=globalThis.ORE_DASH_RUNTIME||{};
@@ -786,7 +786,7 @@ w.url=calendarURL();
 // OVERVIEW HEADER
 const header=w.addStack();header.layoutVertically();header.size=new Size(L.width,0);
 
-// Top weather area is one two-row grid, not separate floating blocks.
+// Top weather area: date/current weather first, future forecast intentionally subordinate.
 const headerNameWidth=112;
 const headerGap=12;
 const headerWeatherWidth=L.width-headerNameWidth-headerGap;
@@ -818,7 +818,7 @@ if(W.ok&&!W.stale&&!W.timeUnverified){
   t.font=Font.semiboldSystemFont(10);t.textColor=C.orange;t.lineLimit=1;
 }
 
-// Row 2: city | high/low/rain + freshness or warning.
+// Row 2: city | today's high/low/rain. Normal freshness is intentionally silent.
 const headerLine2=fixedRow(header,L.width,15);
 
 const citySecondaryBox=fixedRow(headerLine2,headerNameWidth,15);
@@ -831,56 +831,52 @@ headerLine2.addSpacer(headerGap);
 const metaBox=fixedRow(headerLine2,headerWeatherWidth,15);
 metaBox.addSpacer();
 
-if(W.ok&&!W.stale&&!W.timeUnverified){
+if(largeState.label){
+  t=metaBox.addText(shorten(largeState.label,11));
+  t.font=Font.semiboldSystemFont(9);t.textColor=C.orange;t.lineLimit=1;
+}else if(W.ok&&!W.stale&&!W.timeUnverified){
   t=metaBox.addText("↑"+numberLabel(W.max)+"°  ↓"+numberLabel(W.min)+"°  降水"+numberLabel(W.rain)+"%");
   t.font=Font.mediumSystemFont(10);t.textColor=C.sub;t.lineLimit=1;
-  metaBox.addSpacer(7);
 }
 
-if(largeState.label){
-  t=metaBox.addText(shorten(largeState.label,9));
-  t.font=Font.systemFont(8);t.textColor=C.orange;t.lineLimit=1;
-}else{
-  t=metaBox.addText("表示 ");
-  t.font=Font.systemFont(8);t.textColor=C.gray;t.lineLimit=1;
-  const age=metaBox.addDate(fetchedAt);age.applyRelativeStyle();
-  age.font=Font.systemFont(8);age.textColor=C.gray;age.lineLimit=1;age.minimumScaleFactor=1;
-}
+header.addSpacer(5);
 
-header.addSpacer(6);
+// Row 3: compact right-aligned 3-day rail. It is context, not a second headline.
+const forecastLine=fixedRow(header,L.width,31);
+const forecastLabel=fixedRow(forecastLine,headerNameWidth,31);
+t=forecastLabel.addText("3日予報");
+t.font=Font.mediumSystemFont(9);t.textColor=C.gray;t.lineLimit=1;
+forecastLabel.addSpacer();
 
-// Row 2: each future day gets its own cell. Large uses its extra vertical room for legibility.
-const forecastRow=header.addStack();forecastRow.size=new Size(L.width,48);
+forecastLine.addSpacer(headerGap);
+
+const forecastRail=fixedRow(forecastLine,headerWeatherWidth,31);
 const forecastDays=forecastGrid(W);
-
 forecastDays.forEach((day,i)=>{
-  const cell=forecastRow.addStack();cell.layoutVertically();
-  cell.size=new Size(96,48);
+  const cell=forecastRail.addStack();cell.layoutVertically();cell.size=new Size(65,31);
 
   const dayLine=cell.addStack();dayLine.centerAlignContent();
   dayLine.addSpacer();
   let label=dayLine.addText(forecastDayLabel(day.date));
-  label.font=Font.semiboldSystemFont(10);label.textColor=C.sub;label.lineLimit=1;
+  label.font=Font.semiboldSystemFont(9);label.textColor=C.sub;label.lineLimit=1;
   dayLine.addSpacer();
 
-  cell.addSpacer(2);
+  cell.addSpacer(1);
 
   const wxLine=cell.addStack();wxLine.centerAlignContent();
   wxLine.addSpacer();
-  icon(wxLine,weatherInfo(day.code)[1],C.blue,16);
-  wxLine.addSpacer(7);
+  icon(wxLine,weatherInfo(day.code)[1],C.blue,11);
+  wxLine.addSpacer(4);
   let hi=wxLine.addText(numberLabel(day.max));
-  hi.font=Font.boldSystemFont(11);hi.textColor=C.red;
+  hi.font=Font.semiboldSystemFont(9);hi.textColor=C.red;
   let slash=wxLine.addText("/");
-  slash.font=Font.mediumSystemFont(10);slash.textColor=C.gray;
+  slash.font=Font.mediumSystemFont(8);slash.textColor=C.gray;
   let lo=wxLine.addText(numberLabel(day.min));
-  lo.font=Font.boldSystemFont(11);lo.textColor=C.blue;
+  lo.font=Font.semiboldSystemFont(9);lo.textColor=C.blue;
   wxLine.addSpacer();
 
-  if(i<forecastDays.length-1)forecastRow.addSpacer(4);
+  if(i<forecastDays.length-1)forecastRail.addSpacer(5);
 });
-
-forecastRow.addSpacer();
 
 w.addSpacer(4);
 
