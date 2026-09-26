@@ -1,8 +1,8 @@
-// 俺専用ダッシュボード v1.55-github
+// 俺専用ダッシュボード v1.56-github
 // Remote main for Scriptable loader.
 // IMPORTANT: Script.complete() は loader 側で呼ぶ。
 
-const VERSION = "1.55-github";
+const VERSION = "1.56-github";
 
 const USER = globalThis.ORE_DASH_CONFIG || {};
 const RUN_NOW = new Date();
@@ -771,7 +771,7 @@ if(resolveFamily()==="medium"){
   return;
 }
 
-// LARGE v1.55: dedicated overview surface.
+// LARGE v1.56: dedicated overview surface with readable three-day weather.
 // Same data/design language as Medium, but uses the extra area for broader context.
 const L={width:329,dayWidth:38,timeWidth:44,iconWidth:14,columnGap:3};
 const runtime=globalThis.ORE_DASH_RUNTIME||{};
@@ -786,8 +786,10 @@ w.url=calendarURL();
 // OVERVIEW HEADER
 const header=w.addStack();header.layoutVertically();header.size=new Size(L.width,0);
 
+// Row 1: place/date on the left, current conditions on the right.
 const headerTop=header.addStack();headerTop.centerAlignContent();
 const place=headerTop.addStack();place.layoutVertically();
+
 let t=place.addText((position.ok?"":"予備 ")+position.city);
 t.font=Font.boldSystemFont(18);t.textColor=C.text;t.lineLimit=1;
 t=place.addText(todayText());
@@ -797,73 +799,82 @@ headerTop.addSpacer();
 
 if(W.ok&&!W.stale&&!W.timeUnverified){
   const current=headerTop.addStack();current.layoutVertically();
-  const currentTop=current.addStack();currentTop.centerAlignContent();
 
+  const currentTop=current.addStack();currentTop.centerAlignContent();
   t=currentTop.addText(numberLabel(W.temp)+"°");
-  t.font=Font.boldSystemFont(29);t.textColor=C.text;
+  t.font=Font.boldSystemFont(31);t.textColor=C.text;
   currentTop.addSpacer(6);
 
   t=currentTop.addText(weatherName);
-  t.font=Font.semiboldSystemFont(11);t.textColor=C.sub;
+  t.font=Font.semiboldSystemFont(12);t.textColor=C.sub;
   currentTop.addSpacer(6);
-  icon(currentTop,weatherIcon,C.blue,21);
+  icon(currentTop,weatherIcon,C.blue,22);
 
   current.addSpacer(1);
+
   const currentMeta=current.addStack();currentMeta.centerAlignContent();
-  t=currentMeta.addText("↑"+numberLabel(W.max)+"°  ↓"+numberLabel(W.min)+"°  今日降水"+numberLabel(W.rain)+"%");
-  t.font=Font.mediumSystemFont(9);t.textColor=C.sub;
+  t=currentMeta.addText("↑"+numberLabel(W.max)+"°  ↓"+numberLabel(W.min)+"°  降水"+numberLabel(W.rain)+"%");
+  t.font=Font.mediumSystemFont(10);t.textColor=C.sub;
 }else{
   t=headerTop.addText(weatherFailureText(W));
   t.font=Font.semiboldSystemFont(10);t.textColor=C.orange;
 }
 
-header.addSpacer(5);
+header.addSpacer(6);
 
-// Large earns its extra area with a compact three-day strip instead of simply scaling Medium up.
-const forecastRow=header.addStack();forecastRow.size=new Size(L.width,25);forecastRow.centerAlignContent();
-if(W.ok&&!W.stale&&!W.timeUnverified){
-  forecastGrid(W).forEach((day,i)=>{
-    const cell=forecastRow.addStack();cell.centerAlignContent();
-    cell.size=new Size(78,25);
+// Row 2: each future day gets its own cell. Large uses its extra vertical room for legibility.
+const forecastRow=header.addStack();forecastRow.size=new Size(L.width,48);
+const forecastDays=forecastGrid(W);
 
-    const d=cell.addText(forecastDayLabel(day.date));
-    d.font=Font.semiboldSystemFont(9);d.textColor=C.sub;
-    cell.addSpacer(4);
-    icon(cell,weatherInfo(day.code)[1],C.blue,12);
-    cell.addSpacer(4);
+forecastDays.forEach((day,i)=>{
+  const cell=forecastRow.addStack();cell.layoutVertically();
+  cell.size=new Size(96,48);
 
-    const hi=cell.addText(numberLabel(day.max));
-    hi.font=Font.semiboldSystemFont(9);hi.textColor=C.red;
-    const slash=cell.addText("/");
-    slash.font=Font.mediumSystemFont(8);slash.textColor=C.gray;
-    const lo=cell.addText(numberLabel(day.min));
-    lo.font=Font.semiboldSystemFont(9);lo.textColor=C.blue;
+  const dayLine=cell.addStack();dayLine.centerAlignContent();
+  dayLine.addSpacer();
+  let label=dayLine.addText(forecastDayLabel(day.date));
+  label.font=Font.semiboldSystemFont(10);label.textColor=C.sub;label.lineLimit=1;
+  dayLine.addSpacer();
 
-    if(i<2)forecastRow.addSpacer(5);
-  });
-  forecastRow.addSpacer();
-}else{
-  const warn=forecastRow.addText(weatherFailureText(W));
-  warn.font=Font.mediumSystemFont(9);warn.textColor=C.orange;
-  forecastRow.addSpacer();
-}
+  cell.addSpacer(2);
 
-// Freshness / fallback disclosure belongs in the header, not in the agenda.
-const health=forecastRow.addStack();health.centerAlignContent();
+  const wxLine=cell.addStack();wxLine.centerAlignContent();
+  wxLine.addSpacer();
+  icon(wxLine,weatherInfo(day.code)[1],C.blue,16);
+  wxLine.addSpacer(7);
+  let hi=wxLine.addText(numberLabel(day.max));
+  hi.font=Font.boldSystemFont(11);hi.textColor=C.red;
+  let slash=wxLine.addText("/");
+  slash.font=Font.mediumSystemFont(10);slash.textColor=C.gray;
+  let lo=wxLine.addText(numberLabel(day.min));
+  lo.font=Font.boldSystemFont(11);lo.textColor=C.blue;
+  wxLine.addSpacer();
+
+  if(i<forecastDays.length-1)forecastRow.addSpacer(4);
+});
+
+forecastRow.addSpacer();
+
+// Freshness stays visible without competing with the forecast cells.
+const health=forecastRow.addStack();health.layoutVertically();
+health.addSpacer();
+const healthLine=health.addStack();healthLine.centerAlignContent();
 const healthy=!largeState.label;
-t=health.addText("●");t.font=Font.systemFont(7);t.textColor=healthy?C.green:C.orange;
-health.addSpacer(3);
+t=healthLine.addText("●");t.font=Font.systemFont(7);t.textColor=healthy?C.green:C.orange;
+healthLine.addSpacer(3);
+
 if(largeState.label){
-  t=health.addText(shorten(largeState.label,8));
+  t=healthLine.addText(shorten(largeState.label,8));
   t.font=Font.systemFont(8);t.textColor=C.orange;
 }else{
-  t=health.addText("表示 ");
+  t=healthLine.addText("表示 ");
   t.font=Font.systemFont(8);t.textColor=C.gray;
-  const age=health.addDate(fetchedAt);age.applyRelativeStyle();
+  const age=healthLine.addDate(fetchedAt);age.applyRelativeStyle();
   age.font=Font.systemFont(8);age.textColor=C.gray;age.lineLimit=1;age.minimumScaleFactor=1;
 }
+health.addSpacer();
 
-w.addSpacer(5);
+w.addSpacer(4);
 
 // SCHEDULE: six-row overview, using the same when | time | icon | content grammar as Medium.
 const scheduleCard=mkCard(w);
