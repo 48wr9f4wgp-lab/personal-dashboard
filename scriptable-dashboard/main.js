@@ -1,8 +1,8 @@
-// 俺専用ダッシュボード v1.54-github
+// 俺専用ダッシュボード v1.55-github
 // Remote main for Scriptable loader.
 // IMPORTANT: Script.complete() は loader 側で呼ぶ。
 
-const VERSION = "1.54-github";
+const VERSION = "1.55-github";
 
 const USER = globalThis.ORE_DASH_CONFIG || {};
 const RUN_NOW = new Date();
@@ -771,41 +771,104 @@ if(resolveFamily()==="medium"){
   return;
 }
 
+// LARGE v1.55: dedicated overview surface.
+// Same data/design language as Medium, but uses the extra area for broader context.
+const L={width:329,dayWidth:38,timeWidth:44,iconWidth:14,columnGap:3};
+const runtime=globalThis.ORE_DASH_RUNTIME||{};
+const largeState=mediumState(eventsData,upcomingData,deadlineData,W,position,runtime);
+const largeDeadlines=actionableDeadlines.slice(0,2);
+
 const w=new ListWidget();
-w.setPadding(5,14,12,14);
+w.setPadding(5,14,10,14);
 w.backgroundColor=C.bg;
 w.url=calendarURL();
 
-// HEADER
-const header=w.addStack();header.centerAlignContent();
-const left=header.addStack();left.layoutVertically();
-let t=left.addText(position.city);t.font=Font.boldSystemFont(19);t.textColor=C.text;
-t=left.addText(todayText());t.font=Font.mediumSystemFont(11);t.textColor=C.sub;
-header.addSpacer();
-if(W.ok&&!W.stale&&!W.timeUnverified){
-  const weatherBox=header.addStack();weatherBox.layoutVertically();
-  const weatherTop=weatherBox.addStack();weatherTop.centerAlignContent();
-  t=weatherTop.addText(W.temp+"°");t.font=Font.boldSystemFont(31);t.textColor=C.text;weatherTop.addSpacer(7);
-  t=weatherTop.addText(weatherName);t.font=Font.semiboldSystemFont(12);t.textColor=C.sub;weatherTop.addSpacer(7);
-  icon(weatherTop,weatherIcon,C.blue,24);
-  weatherBox.addSpacer(1);
-  const weatherMeta=weatherBox.addStack();weatherMeta.centerAlignContent();
-  t=weatherMeta.addText("↑"+numberLabel(W.max)+"°  ↓"+numberLabel(W.min)+"°  今日降水"+numberLabel(W.rain)+"%");t.font=Font.mediumSystemFont(10);t.textColor=C.sub;
-  weatherBox.addSpacer(1);
-  const liveMeta=weatherBox.addStack();liveMeta.centerAlignContent();
-  const dataHealthy=position.ok&&eventsData.ok&&deadlineData.ok&&upcomingData.ok;
-  t=liveMeta.addText("●");t.font=Font.systemFont(8);t.textColor=dataHealthy?C.green:C.orange;liveMeta.addSpacer(3);
-  const cachedCode=(globalThis.ORE_DASH_RUNTIME||{}).codeSource==="lastGood";
-  const stateLabel=cachedCode?"前回コード ":!position.ok?"予備地点 ":(!dataHealthy?"一部取得失敗 ":"更新 ");
-  t=liveMeta.addText(stateLabel);t.font=Font.systemFont(8);t.textColor=dataHealthy?C.gray:C.orange;
-  const liveRel=liveMeta.addDate(fetchedAt);liveRel.applyRelativeStyle();liveRel.font=Font.systemFont(8);liveRel.textColor=C.gray;
-}else{t=header.addText(weatherFailureText(W));t.font=Font.semiboldSystemFont(10);t.textColor=C.red;}
-w.addSpacer(2);
+// OVERVIEW HEADER
+const header=w.addStack();header.layoutVertically();header.size=new Size(L.width,0);
 
-// ROW1 unified schedule timeline
+const headerTop=header.addStack();headerTop.centerAlignContent();
+const place=headerTop.addStack();place.layoutVertically();
+let t=place.addText((position.ok?"":"予備 ")+position.city);
+t.font=Font.boldSystemFont(18);t.textColor=C.text;t.lineLimit=1;
+t=place.addText(todayText());
+t.font=Font.mediumSystemFont(10);t.textColor=C.sub;t.lineLimit=1;
+
+headerTop.addSpacer();
+
+if(W.ok&&!W.stale&&!W.timeUnverified){
+  const current=headerTop.addStack();current.layoutVertically();
+  const currentTop=current.addStack();currentTop.centerAlignContent();
+
+  t=currentTop.addText(numberLabel(W.temp)+"°");
+  t.font=Font.boldSystemFont(29);t.textColor=C.text;
+  currentTop.addSpacer(6);
+
+  t=currentTop.addText(weatherName);
+  t.font=Font.semiboldSystemFont(11);t.textColor=C.sub;
+  currentTop.addSpacer(6);
+  icon(currentTop,weatherIcon,C.blue,21);
+
+  current.addSpacer(1);
+  const currentMeta=current.addStack();currentMeta.centerAlignContent();
+  t=currentMeta.addText("↑"+numberLabel(W.max)+"°  ↓"+numberLabel(W.min)+"°  今日降水"+numberLabel(W.rain)+"%");
+  t.font=Font.mediumSystemFont(9);t.textColor=C.sub;
+}else{
+  t=headerTop.addText(weatherFailureText(W));
+  t.font=Font.semiboldSystemFont(10);t.textColor=C.orange;
+}
+
+header.addSpacer(5);
+
+// Large earns its extra area with a compact three-day strip instead of simply scaling Medium up.
+const forecastRow=header.addStack();forecastRow.size=new Size(L.width,25);forecastRow.centerAlignContent();
+if(W.ok&&!W.stale&&!W.timeUnverified){
+  forecastGrid(W).forEach((day,i)=>{
+    const cell=forecastRow.addStack();cell.centerAlignContent();
+    cell.size=new Size(78,25);
+
+    const d=cell.addText(forecastDayLabel(day.date));
+    d.font=Font.semiboldSystemFont(9);d.textColor=C.sub;
+    cell.addSpacer(4);
+    icon(cell,weatherInfo(day.code)[1],C.blue,12);
+    cell.addSpacer(4);
+
+    const hi=cell.addText(numberLabel(day.max));
+    hi.font=Font.semiboldSystemFont(9);hi.textColor=C.red;
+    const slash=cell.addText("/");
+    slash.font=Font.mediumSystemFont(8);slash.textColor=C.gray;
+    const lo=cell.addText(numberLabel(day.min));
+    lo.font=Font.semiboldSystemFont(9);lo.textColor=C.blue;
+
+    if(i<2)forecastRow.addSpacer(5);
+  });
+  forecastRow.addSpacer();
+}else{
+  const warn=forecastRow.addText(weatherFailureText(W));
+  warn.font=Font.mediumSystemFont(9);warn.textColor=C.orange;
+  forecastRow.addSpacer();
+}
+
+// Freshness / fallback disclosure belongs in the header, not in the agenda.
+const health=forecastRow.addStack();health.centerAlignContent();
+const healthy=!largeState.label;
+t=health.addText("●");t.font=Font.systemFont(7);t.textColor=healthy?C.green:C.orange;
+health.addSpacer(3);
+if(largeState.label){
+  t=health.addText(shorten(largeState.label,8));
+  t.font=Font.systemFont(8);t.textColor=C.orange;
+}else{
+  t=health.addText("表示 ");
+  t.font=Font.systemFont(8);t.textColor=C.gray;
+  const age=health.addDate(fetchedAt);age.applyRelativeStyle();
+  age.font=Font.systemFont(8);age.textColor=C.gray;age.lineLimit=1;age.minimumScaleFactor=1;
+}
+
+w.addSpacer(5);
+
+// SCHEDULE: six-row overview, using the same when | time | icon | content grammar as Medium.
 const scheduleCard=mkCard(w);
-scheduleCard.size=new Size(329,0);
-scheduleCard.setPadding(9,12,9,12);
+scheduleCard.size=new Size(L.width,0);
+scheduleCard.setPadding(8,12,8,12);
 
 const sh=scheduleCard.addStack();sh.centerAlignContent();
 let sht=sh.addText("予定");
@@ -813,58 +876,43 @@ sht.font=Font.boldSystemFont(13);
 sht.textColor=C.text;
 sh.addSpacer();
 
-const schedulePartial=!eventsData.ok || !upcomingData.ok;
-const scheduleStatus=schedulePartial
-  ?"一部取得失敗"
-  :(!scheduleRows.length?"予定なし":"");
-
-if(scheduleStatus){
-  let st=sh.addText(scheduleStatus);
-  st.font=Font.systemFont(8);
-  st.textColor=schedulePartial?C.orange:C.gray;
+const schedulePartial=!eventsData.ok||!upcomingData.ok;
+if(schedulePartial){
+  const st=sh.addText("一部取得失敗");
+  st.font=Font.systemFont(8);st.textColor=C.orange;
 }
-
-scheduleCard.addSpacer(6);
+scheduleCard.addSpacer(5);
 
 if(!scheduleRows.length){
-  let empty=scheduleCard.addText(schedulePartial?"予定を取得できません":"予定はありません");
-  empty.font=Font.mediumSystemFont(10);
-  empty.textColor=C.sub;
+  const empty=scheduleCard.addText(schedulePartial?"予定を取得できません":"直近の予定なし");
+  empty.font=Font.mediumSystemFont(11);
+  empty.textColor=schedulePartial?C.orange:C.sub;
 }else{
   scheduleRows.forEach((it,i)=>{
     const line=scheduleCard.addStack();line.centerAlignContent();
-    const prev=i>0?scheduleRows[i-1]:null;
-    const repeatDay=prev&&sameCalendarDay(prev.date,it.date);
+    const repeatDay=i>0&&sameCalendarDay(scheduleRows[i-1].date,it.date);
 
-    // Same-day rows are visually grouped: show the date only on the first row.
-    const dayBox=line.addStack();
-    dayBox.size=new Size(38,0);
-    let day=dayBox.addText(repeatDay?"":(it.today?"今日":fmtDate(it.date)));
-    day.font=Font.boldSystemFont(11);
+    const dayBox=line.addStack();dayBox.size=new Size(L.dayWidth,0);
+    let day=dayBox.addText(repeatDay?"":(it.today?"今日":timelineDay(it.date)));
+    day.font=Font.semiboldSystemFont(11);
     day.textColor=it.today?C.blue:C.text;
+    day.lineLimit=1;
 
-    line.addSpacer(4);
+    line.addSpacer(L.columnGap);
 
-    const timeBox=line.addStack();
-    timeBox.size=new Size(42,0);
+    const timeBox=line.addStack();timeBox.size=new Size(L.timeWidth,0);
     let time=timeBox.addText(fmtTime(it.date,it.allDay));
     time.font=Font.semiboldSystemFont(10);
     time.textColor=it.today?C.blue:C.sub;
+    time.lineLimit=1;
 
-    line.addSpacer(4);
+    line.addSpacer(L.columnGap);
 
-    // Fixed icon column keeps every title aligned.
-    const iconBox=line.addStack();
-    iconBox.size=new Size(18,0);
-    iconBox.centerAlignContent();
-    if(it.combat){
-      let em=iconBox.addText(combatEmoji(it));
-      em.font=Font.systemFont(11);
-    }else{
-      icon(iconBox,futureIconName(it),futureIconColor(it),10);
-    }
+    const iconBox=line.addStack();iconBox.size=new Size(L.iconWidth,0);iconBox.centerAlignContent();
+    if(it.combat) combatIcon(iconBox,it,12);
+    else icon(iconBox,futureIconName(it),C.sub,10);
 
-    line.addSpacer(5);
+    line.addSpacer(L.columnGap);
 
     let title=line.addText(compactUpcomingTitle(it));
     title.font=(it.combat||it.soccer)?Font.semiboldSystemFont(12):Font.mediumSystemFont(12);
@@ -873,51 +921,53 @@ if(!scheduleRows.length){
 
     if(i<scheduleRows.length-1){
       const next=scheduleRows[i+1];
-      const endOfDayGroup=next&&!sameCalendarDay(it.date,next.date);
-      scheduleCard.addSpacer(endOfDayGroup?7:4);
+      scheduleCard.addSpacer(next&&!sameCalendarDay(it.date,next.date)?6:3);
     }
   });
-
 }
+
 w.addSpacer(6);
 
-// ROW2 important deadlines
+// DEADLINES: Large intentionally shows two. More belongs in Calendar, not on the home screen.
 const deadlineCard=mkCard(w);
-deadlineCard.size=new Size(329,0);
-deadlineCard.setPadding(10,12,10,12);
+deadlineCard.size=new Size(L.width,0);
+deadlineCard.setPadding(9,12,9,12);
 
 const dh=deadlineCard.addStack();dh.centerAlignContent();
 let dht=dh.addText("重要期限");
 dht.font=Font.boldSystemFont(13);
 dht.textColor=C.text;
-deadlineCard.addSpacer(7);
+dh.addSpacer();
+
+if(deadlineData.ok&&actionableDeadlines.length>largeDeadlines.length){
+  const more=dh.addText("直近2件");
+  more.font=Font.systemFont(8);more.textColor=C.gray;
+}
+deadlineCard.addSpacer(6);
 
 if(!deadlineData.ok){
   t=deadlineCard.addText("取得失敗");
-  t.font=Font.mediumSystemFont(11);t.textColor=C.red;
-}else if(!actionableDeadlines.length){
+  t.font=Font.mediumSystemFont(11);t.textColor=C.orange;
+}else if(!largeDeadlines.length){
   t=deadlineCard.addText("30日以内の重要期限なし");
   t.font=Font.mediumSystemFont(11);t.textColor=C.sub;
 }else{
-  shownDeadlines.forEach((it,i)=>{
+  largeDeadlines.forEach((it,i)=>{
     const urgency=deadlineColor(it.date);
 
     const meta=deadlineCard.addStack();meta.centerAlignContent();
 
     let dot=meta.addText("●");
-    dot.font=Font.systemFont(9);
-    dot.textColor=urgency;
+    dot.font=Font.systemFont(9);dot.textColor=urgency;
     meta.addSpacer(6);
 
-    let date=meta.addText(fmtDate(it.date));
-    date.font=Font.boldSystemFont(11);
-    date.textColor=C.text;
+    let date=meta.addText(timelineDay(it.date));
+    date.font=Font.boldSystemFont(11);date.textColor=urgency;
 
     meta.addSpacer();
 
     let rel=meta.addText(relativeDay(it.date));
-    rel.font=Font.boldSystemFont(10);
-    rel.textColor=urgency;
+    rel.font=Font.boldSystemFont(10);rel.textColor=urgency;
 
     deadlineCard.addSpacer(2);
 
@@ -926,14 +976,11 @@ if(!deadlineData.ok){
     title.textColor=C.text;
     title.lineLimit=2;
 
-    if(i<shownDeadlines.length-1) deadlineCard.addSpacer(9);
+    if(i<largeDeadlines.length-1) deadlineCard.addSpacer(8);
   });
 }
-w.addSpacer(2);
 
-// Anchor content to top; remaining vertical space goes below the cards.
 w.addSpacer();
-
-// freshness/version moved into header to preserve bottom space
 w.refreshAfterDate=nextRefresh();
+console.log("[dashboard] "+VERSION+" large; loader="+(runtime.codeSource||"unknown")+"; "+largeState.issues.join(","));
 if(config.runsInWidget) Script.setWidget(w); else await w.presentLarge();
