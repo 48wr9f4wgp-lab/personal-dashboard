@@ -1,8 +1,8 @@
-// 俺専用ダッシュボード v1.60-github
+// 俺専用ダッシュボード v1.61-github
 // Remote main for Scriptable loader.
 // IMPORTANT: Script.complete() は loader 側で呼ぶ。
 
-const VERSION = "1.60-github";
+const VERSION = "1.61-github";
 
 const USER = globalThis.ORE_DASH_CONFIG || {};
 const RUN_NOW = new Date();
@@ -771,7 +771,7 @@ if(resolveFamily()==="medium"){
   return;
 }
 
-// LARGE v1.60: unified two-row weather header grid.
+// LARGE v1.61: date-first header hierarchy; forecast strip unchanged.
 // Same data/design language as Medium, but uses the extra area for broader context.
 const L={width:329,dayWidth:38,timeWidth:44,iconWidth:14,columnGap:3};
 const runtime=globalThis.ORE_DASH_RUNTIME||{};
@@ -791,13 +791,13 @@ const headerNameWidth=112;
 const headerGap=12;
 const headerWeatherWidth=L.width-headerNameWidth-headerGap;
 
-// Row 1: city | current temperature + condition.
+// Row 1: date | current temperature + condition.
 const headerLine1=fixedRow(header,L.width,27);
 
-const cityBox=fixedRow(headerLine1,headerNameWidth,27);
-let t=cityBox.addText((position.ok?"":"予備 ")+position.city);
-t.font=Font.boldSystemFont(17);t.textColor=C.text;t.lineLimit=1;t.minimumScaleFactor=0.85;
-cityBox.addSpacer();
+const datePrimaryBox=fixedRow(headerLine1,headerNameWidth,27);
+let t=datePrimaryBox.addText(todayText());
+t.font=Font.semiboldSystemFont(15);t.textColor=C.text;t.lineLimit=1;t.minimumScaleFactor=0.9;
+datePrimaryBox.addSpacer();
 
 headerLine1.addSpacer(headerGap);
 
@@ -818,13 +818,13 @@ if(W.ok&&!W.stale&&!W.timeUnverified){
   t.font=Font.semiboldSystemFont(10);t.textColor=C.orange;t.lineLimit=1;
 }
 
-// Row 2: date | high/low/rain + freshness or warning.
+// Row 2: city | high/low/rain + freshness or warning.
 const headerLine2=fixedRow(header,L.width,15);
 
-const dateBox=fixedRow(headerLine2,headerNameWidth,15);
-t=dateBox.addText(todayText());
-t.font=Font.mediumSystemFont(10);t.textColor=C.sub;t.lineLimit=1;
-dateBox.addSpacer();
+const citySecondaryBox=fixedRow(headerLine2,headerNameWidth,15);
+t=citySecondaryBox.addText((position.ok?"":"予備 ")+position.city);
+t.font=Font.mediumSystemFont(10);t.textColor=C.sub;t.lineLimit=1;t.minimumScaleFactor=0.85;
+citySecondaryBox.addSpacer();
 
 headerLine2.addSpacer(headerGap);
 
