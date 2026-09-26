@@ -1,8 +1,8 @@
-// 俺専用ダッシュボード v1.56-github
+// 俺専用ダッシュボード v1.57-github
 // Remote main for Scriptable loader.
 // IMPORTANT: Script.complete() は loader 側で呼ぶ。
 
-const VERSION = "1.56-github";
+const VERSION = "1.57-github";
 
 const USER = globalThis.ORE_DASH_CONFIG || {};
 const RUN_NOW = new Date();
@@ -771,7 +771,7 @@ if(resolveFamily()==="medium"){
   return;
 }
 
-// LARGE v1.56: dedicated overview surface with readable three-day weather.
+// LARGE v1.57: dedicated overview surface with readable weather and non-competing freshness.
 // Same data/design language as Medium, but uses the extra area for broader context.
 const L={width:329,dayWidth:38,timeWidth:44,iconWidth:14,columnGap:3};
 const runtime=globalThis.ORE_DASH_RUNTIME||{};
@@ -815,6 +815,24 @@ if(W.ok&&!W.stale&&!W.timeUnverified){
   const currentMeta=current.addStack();currentMeta.centerAlignContent();
   t=currentMeta.addText("↑"+numberLabel(W.max)+"°  ↓"+numberLabel(W.min)+"°  降水"+numberLabel(W.rain)+"%");
   t.font=Font.mediumSystemFont(10);t.textColor=C.sub;
+
+  // Freshness belongs under the current conditions, not beside the three-day forecast.
+  current.addSpacer(1);
+  const currentHealth=current.addStack();currentHealth.centerAlignContent();
+  currentHealth.addSpacer();
+  const healthy=!largeState.label;
+  t=currentHealth.addText("●");
+  t.font=Font.systemFont(7);t.textColor=healthy?C.green:C.orange;
+  currentHealth.addSpacer(3);
+  if(largeState.label){
+    t=currentHealth.addText(shorten(largeState.label,10));
+    t.font=Font.systemFont(8);t.textColor=C.orange;t.lineLimit=1;
+  }else{
+    t=currentHealth.addText("表示 ");
+    t.font=Font.systemFont(8);t.textColor=C.gray;
+    const age=currentHealth.addDate(fetchedAt);age.applyRelativeStyle();
+    age.font=Font.systemFont(8);age.textColor=C.gray;age.lineLimit=1;age.minimumScaleFactor=1;
+  }
 }else{
   t=headerTop.addText(weatherFailureText(W));
   t.font=Font.semiboldSystemFont(10);t.textColor=C.orange;
@@ -854,25 +872,6 @@ forecastDays.forEach((day,i)=>{
 });
 
 forecastRow.addSpacer();
-
-// Freshness stays visible without competing with the forecast cells.
-const health=forecastRow.addStack();health.layoutVertically();
-health.addSpacer();
-const healthLine=health.addStack();healthLine.centerAlignContent();
-const healthy=!largeState.label;
-t=healthLine.addText("●");t.font=Font.systemFont(7);t.textColor=healthy?C.green:C.orange;
-healthLine.addSpacer(3);
-
-if(largeState.label){
-  t=healthLine.addText(shorten(largeState.label,8));
-  t.font=Font.systemFont(8);t.textColor=C.orange;
-}else{
-  t=healthLine.addText("表示 ");
-  t.font=Font.systemFont(8);t.textColor=C.gray;
-  const age=healthLine.addDate(fetchedAt);age.applyRelativeStyle();
-  age.font=Font.systemFont(8);age.textColor=C.gray;age.lineLimit=1;age.minimumScaleFactor=1;
-}
-health.addSpacer();
 
 w.addSpacer(4);
 
