@@ -1,8 +1,8 @@
-// 俺専用ダッシュボード v1.58-github
+// 俺専用ダッシュボード v1.59-github
 // Remote main for Scriptable loader.
 // IMPORTANT: Script.complete() は loader 側で呼ぶ。
 
-const VERSION = "1.58-github";
+const VERSION = "1.59-github";
 
 const USER = globalThis.ORE_DASH_CONFIG || {};
 const RUN_NOW = new Date();
@@ -771,7 +771,7 @@ if(resolveFamily()==="medium"){
   return;
 }
 
-// LARGE v1.58: dedicated overview surface with separated place and current-weather blocks.
+// LARGE v1.59: final header separation with slight weather offset.
 // Same data/design language as Medium, but uses the extra area for broader context.
 const L={width:329,dayWidth:38,timeWidth:44,iconWidth:14,columnGap:3};
 const runtime=globalThis.ORE_DASH_RUNTIME||{};
@@ -789,7 +789,7 @@ const header=w.addStack();header.layoutVertically();header.size=new Size(L.width
 // Row 1: place/date and current conditions are independent visual blocks.
 const headerTop=header.addStack();headerTop.centerAlignContent();headerTop.size=new Size(L.width,0);
 const placeWidth=112;
-const currentWidth=L.width-placeWidth-16;
+const currentWidth=L.width-placeWidth-20;
 
 const place=headerTop.addStack();place.layoutVertically();place.size=new Size(placeWidth,0);
 
@@ -798,10 +798,11 @@ t.font=Font.boldSystemFont(17);t.textColor=C.text;t.lineLimit=1;t.minimumScaleFa
 t=place.addText(todayText());
 t.font=Font.mediumSystemFont(10);t.textColor=C.sub;t.lineLimit=1;
 
-headerTop.addSpacer(16);
+headerTop.addSpacer(20);
 
 if(W.ok&&!W.stale&&!W.timeUnverified){
   const current=headerTop.addStack();current.layoutVertically();current.size=new Size(currentWidth,0);
+  current.addSpacer(3);
 
   const currentTop=current.addStack();currentTop.centerAlignContent();
   currentTop.addSpacer();
