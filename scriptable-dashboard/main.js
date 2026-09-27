@@ -1,8 +1,8 @@
-// 俺専用ダッシュボード v1.66-github
+// 俺専用ダッシュボード v1.67-github
 // Remote main for Scriptable loader.
 // IMPORTANT: Script.complete() は loader 側で呼ぶ。
 
-const VERSION = "1.66-github";
+const VERSION = "1.67-github";
 
 const USER = globalThis.ORE_DASH_CONFIG || {};
 const RUN_NOW = new Date();
@@ -103,7 +103,7 @@ async function getWeather(pos){
   const missing={ok:false,partial:true,stale:false,timeUnverified:false,
     temp:null,code:-1,isDay:null,max:null,min:null,rain:null,daily:[],localDate:isoDay(RUN_NOW)};
   try{
-    const u="https://api.open-meteo.com/v1/forecast?latitude="+pos.lat+"&longitude="+pos.lon+"&current=temperature_2m,weather_code,is_day&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max&timezone=auto&forecast_days=4";
+    const u="https://api.open-meteo.com/v1/forecast?latitude="+pos.lat+"&longitude="+pos.lon+"&current=temperature_2m,weather_code,is_day&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max&timezone=auto&forecast_days=7";
     const r=new Request(u);r.timeoutInterval=10;const j=await r.loadJSON();
     if(!j||j.error||!j.current)return missing;
     const receivedAt=new Date();
@@ -771,7 +771,7 @@ if(resolveFamily()==="medium"){
   return;
 }
 
-// LARGE v1.66: tomorrow-only forecast for a cleaner date/current-weather hierarchy.
+// LARGE v1.67: current-weather header + dedicated six-day weather card.
 // Same data/design language as Medium, but uses the extra area for broader context.
 const L={width:329,dayWidth:38,timeWidth:44,iconWidth:14,columnGap:3};
 const runtime=globalThis.ORE_DASH_RUNTIME||{};
@@ -786,21 +786,20 @@ w.url=calendarURL();
 // OVERVIEW HEADER
 const header=w.addStack();header.layoutVertically();header.size=new Size(L.width,0);
 
-// Top weather area: left = date/place, right = current weather + compact future context.
+// Top weather area: left = date/place, right = current weather. Future weather lives in its own bottom card.
 const headerLeftWidth=112;
 const headerGap=12;
 const headerRightWidth=L.width-headerLeftWidth-headerGap;
 const largeWeatherUsable=W.ok&&!W.stale&&!W.timeUnverified;
-const largeForecastUsable=largeWeatherUsable&&!W.partial;
 
 const headerGrid=header.addStack();
-headerGrid.size=new Size(L.width,58);
+headerGrid.size=new Size(L.width,43);
 headerGrid.topAlignContent();
 
 // Left column: date is primary, place is supporting context.
 const identity=headerGrid.addStack();
 identity.layoutVertically();
-identity.size=new Size(headerLeftWidth,58);
+identity.size=new Size(headerLeftWidth,43);
 
 let t=identity.addText(todayText());
 t.font=Font.semiboldSystemFont(15);t.textColor=C.text;t.lineLimit=1;t.minimumScaleFactor=0.9;
@@ -811,14 +810,15 @@ t.font=Font.mediumSystemFont(10);t.textColor=C.sub;t.lineLimit=1;t.minimumScaleF
 
 headerGrid.addSpacer(headerGap);
 
-// Right column: today's weather owns the space; future days are a quiet one-line supplement.
+// Right column: current conditions only, with no competing future-forecast strip.
 const weatherPane=headerGrid.addStack();
 weatherPane.layoutVertically();
-weatherPane.size=new Size(headerRightWidth,58);
+weatherPane.size=new Size(headerRightWidth,43);
 
 if(largeWeatherUsable){
   const currentLine=fixedRow(weatherPane,headerRightWidth,27);
   currentLine.addSpacer();
+
   t=currentLine.addText(numberLabel(W.temp)+"°");
   t.font=Font.boldSystemFont(31);t.textColor=C.text;t.lineLimit=1;
   currentLine.addSpacer(7);
@@ -832,36 +832,6 @@ if(largeWeatherUsable){
   currentMeta.addSpacer();
   t=currentMeta.addText("↑"+numberLabel(W.max)+"°  ↓"+numberLabel(W.min)+"°  降水"+numberLabel(W.rain)+"%");
   t.font=Font.mediumSystemFont(10);t.textColor=C.sub;t.lineLimit=1;
-
-  weatherPane.addSpacer(2);
-
-  if(largeForecastUsable){
-    const forecastRow=fixedRow(weatherPane,headerRightWidth,15);
-    const tomorrow=forecastGrid(W)[0];
-
-    forecastRow.addSpacer();
-
-    let tomorrowLabel=forecastRow.addText("明日");
-    tomorrowLabel.font=Font.semiboldSystemFont(9);tomorrowLabel.textColor=C.sub;tomorrowLabel.lineLimit=1;
-    forecastRow.addSpacer(5);
-
-    icon(forecastRow,weatherInfo(tomorrow.code)[1],C.blue,10);
-    forecastRow.addSpacer(5);
-
-    let hi=forecastRow.addText(numberLabel(tomorrow.max)+"°");
-    hi.font=Font.semiboldSystemFont(10);hi.textColor=C.red;hi.lineLimit=1;
-
-    let slash=forecastRow.addText(" / ");
-    slash.font=Font.mediumSystemFont(9);slash.textColor=C.gray;slash.lineLimit=1;
-
-    let lo=forecastRow.addText(numberLabel(tomorrow.min)+"°");
-    lo.font=Font.semiboldSystemFont(10);lo.textColor=C.blue;lo.lineLimit=1;
-  }else if(W.partial){
-    const forecastWarning=fixedRow(weatherPane,headerRightWidth,15);
-    forecastWarning.addSpacer();
-    t=forecastWarning.addText("予報一部未取得");
-    t.font=Font.mediumSystemFont(8);t.textColor=C.orange;t.lineLimit=1;
-  }
 }else{
   const weatherError=fixedRow(weatherPane,headerRightWidth,27);
   weatherError.addSpacer();
@@ -984,6 +954,67 @@ if(!deadlineData.ok){
 
     if(i<largeDeadlines.length-1) deadlineCard.addSpacer(8);
   });
+}
+
+w.addSpacer(6);
+
+// WEATHER: six-day overview to replace the separate Weathernews home-screen widget.
+if(largeWeatherUsable){
+  const weatherBase=parseISODate(W.localDate)||dayStart(RUN_NOW);
+  const weekDays=[0,1,2,3,4,5].map(offset=>{
+    const date=isoDay(addDays(weatherBase,offset));
+    return (W.daily||[]).find(day=>day.date===date)||null;
+  });
+  const weekComplete=weekDays.every(day=>day&&[day.code,day.max,day.min].every(x=>x!==null));
+
+  const weekCard=mkCard(w);
+  weekCard.size=new Size(L.width,0);
+  weekCard.setPadding(7,10,7,10);
+
+  const wh=weekCard.addStack();wh.centerAlignContent();
+  let wt=wh.addText("週間天気");
+  wt.font=Font.boldSystemFont(12);wt.textColor=C.text;
+  wh.addSpacer();
+
+  if(!weekComplete){
+    let warn=wh.addText("一部未取得");
+    warn.font=Font.systemFont(8);warn.textColor=C.orange;
+  }
+
+  weekCard.addSpacer(4);
+
+  if(weekComplete){
+    const grid=weekCard.addStack();
+    const innerWidth=L.width-20;
+    const gap=3;
+    const cellWidth=(innerWidth-gap*5)/6;
+
+    weekDays.forEach((day,index)=>{
+      const cell=grid.addStack();cell.layoutVertically();cell.size=new Size(cellWidth,46);
+
+      const d=parseISODate(day.date);
+      const label=index===0?"今日":(d?String(d.getDate())+["日","月","火","水","木","金","土"][d.getDay()]:"--");
+      centeredRow(cell,cellWidth,11,row=>{
+        const tx=singleText(row,label,Font.semiboldSystemFont(9),index===0?C.red:C.sub);
+        tx.minimumScaleFactor=0.9;
+      });
+
+      cell.addSpacer(2);
+      centeredRow(cell,cellWidth,16,row=>icon(row,weatherInfo(day.code)[1],C.blue,15));
+
+      cell.addSpacer(2);
+      centeredRow(cell,cellWidth,11,row=>{
+        singleText(row,numberLabel(day.max),Font.semiboldSystemFont(9),C.red);
+        singleText(row,"/",Font.mediumSystemFont(8),C.gray);
+        singleText(row,numberLabel(day.min),Font.semiboldSystemFont(9),C.blue);
+      });
+
+      if(index<weekDays.length-1)grid.addSpacer(gap);
+    });
+  }else{
+    let empty=weekCard.addText("週間予報を取得できません");
+    empty.font=Font.mediumSystemFont(10);empty.textColor=C.orange;
+  }
 }
 
 w.addSpacer();
