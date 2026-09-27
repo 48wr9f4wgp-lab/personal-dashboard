@@ -1,8 +1,8 @@
-// 俺専用ダッシュボード v1.68-github
+// 俺専用ダッシュボード v1.69-github
 // Remote main for Scriptable loader.
 // IMPORTANT: Script.complete() は loader 側で呼ぶ。
 
-const VERSION = "1.68-github";
+const VERSION = "1.69-github";
 
 const USER = globalThis.ORE_DASH_CONFIG || {};
 const RUN_NOW = new Date();
@@ -771,12 +771,26 @@ if(resolveFamily()==="medium"){
   return;
 }
 
-// LARGE v1.68: rebalance vertical spacing to protect the top header without shrinking type.
+// LARGE v1.69: semantic weather icon colors for faster visual scanning.
 // Same data/design language as Medium, but uses the extra area for broader context.
 const L={width:329,dayWidth:38,timeWidth:44,iconWidth:14,columnGap:3};
 const runtime=globalThis.ORE_DASH_RUNTIME||{};
 const largeState=mediumState(eventsData,upcomingData,deadlineData,W,position,runtime);
 const largeDeadlines=actionableDeadlines.slice(0,2);
+
+// Large-only semantic tint: color supplements the icon shape, so weather can be scanned at a glance.
+function largeWeatherTint(code,isDay=null){
+  if(code===0 || code===1 || code===2){
+    return isDay===false ? C.purple : C.orange;
+  }
+  if(code===3 || code===45 || code===48) return C.gray;
+  if([51,53,55,56,57,61,63,65,66,67,80,81,82].includes(code)) return C.blue;
+  if([71,73,75,77,85,86].includes(code)){
+    return Color.dynamic(new Color("#32ADE6"),new Color("#64D2FF"));
+  }
+  if([95,96,99].includes(code)) return C.purple;
+  return C.gray;
+}
 
 const w=new ListWidget();
 w.setPadding(8,14,8,14);
@@ -826,7 +840,7 @@ if(largeWeatherUsable){
   t=currentLine.addText(weatherName);
   t.font=Font.semiboldSystemFont(12);t.textColor=C.sub;t.lineLimit=1;
   currentLine.addSpacer(6);
-  icon(currentLine,weatherIcon,C.blue,22);
+  icon(currentLine,weatherIcon,largeWeatherTint(W.code,W.isDay),22);
 
   const currentMeta=fixedRow(weatherPane,headerRightWidth,14);
   currentMeta.addSpacer();
@@ -1000,7 +1014,7 @@ if(largeWeatherUsable){
       });
 
       cell.addSpacer(2);
-      centeredRow(cell,cellWidth,16,row=>icon(row,weatherInfo(day.code)[1],C.blue,15));
+      centeredRow(cell,cellWidth,16,row=>icon(row,weatherInfo(day.code)[1],largeWeatherTint(day.code),15));
 
       cell.addSpacer(2);
       centeredRow(cell,cellWidth,11,row=>{
