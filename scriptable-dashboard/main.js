@@ -1,8 +1,8 @@
-// 俺専用ダッシュボード v1.62-github
+// 俺専用ダッシュボード v1.63-github
 // Remote main for Scriptable loader.
 // IMPORTANT: Script.complete() は loader 側で呼ぶ。
 
-const VERSION = "1.62-github";
+const VERSION = "1.63-github";
 
 const USER = globalThis.ORE_DASH_CONFIG || {};
 const RUN_NOW = new Date();
@@ -771,7 +771,7 @@ if(resolveFamily()==="medium"){
   return;
 }
 
-// LARGE v1.62: date-first header with compact subordinate forecast rail.
+// LARGE v1.63: suppress duplicate weather-failure UI and hide unavailable forecast rail.
 // Same data/design language as Medium, but uses the extra area for broader context.
 const L={width:329,dayWidth:38,timeWidth:44,iconWidth:14,columnGap:3};
 const runtime=globalThis.ORE_DASH_RUNTIME||{};
@@ -790,6 +790,7 @@ const header=w.addStack();header.layoutVertically();header.size=new Size(L.width
 const headerNameWidth=112;
 const headerGap=12;
 const headerWeatherWidth=L.width-headerNameWidth-headerGap;
+const largeWeatherUsable=W.ok&&!W.stale&&!W.timeUnverified;
 
 // Row 1: date | current temperature + condition.
 const headerLine1=fixedRow(header,L.width,27);
@@ -802,7 +803,7 @@ datePrimaryBox.addSpacer();
 headerLine1.addSpacer(headerGap);
 
 const currentBox=fixedRow(headerLine1,headerWeatherWidth,27);
-if(W.ok&&!W.stale&&!W.timeUnverified){
+if(largeWeatherUsable){
   currentBox.addSpacer();
   t=currentBox.addText(numberLabel(W.temp)+"°");
   t.font=Font.boldSystemFont(31);t.textColor=C.text;t.lineLimit=1;
@@ -831,52 +832,56 @@ headerLine2.addSpacer(headerGap);
 const metaBox=fixedRow(headerLine2,headerWeatherWidth,15);
 metaBox.addSpacer();
 
-if(largeState.label){
-  t=metaBox.addText(shorten(largeState.label,11));
-  t.font=Font.semiboldSystemFont(9);t.textColor=C.orange;t.lineLimit=1;
-}else if(W.ok&&!W.stale&&!W.timeUnverified){
-  t=metaBox.addText("↑"+numberLabel(W.max)+"°  ↓"+numberLabel(W.min)+"°  降水"+numberLabel(W.rain)+"%");
-  t.font=Font.mediumSystemFont(10);t.textColor=C.sub;t.lineLimit=1;
+if(largeWeatherUsable){
+  if(largeState.label){
+    t=metaBox.addText(shorten(largeState.label,11));
+    t.font=Font.semiboldSystemFont(9);t.textColor=C.orange;t.lineLimit=1;
+  }else{
+    t=metaBox.addText("↑"+numberLabel(W.max)+"°  ↓"+numberLabel(W.min)+"°  降水"+numberLabel(W.rain)+"%");
+    t.font=Font.mediumSystemFont(10);t.textColor=C.sub;t.lineLimit=1;
+  }
 }
 
 header.addSpacer(5);
 
-// Row 3: compact right-aligned 3-day rail. It is context, not a second headline.
-const forecastLine=fixedRow(header,L.width,31);
-const forecastLabel=fixedRow(forecastLine,headerNameWidth,31);
-t=forecastLabel.addText("3日予報");
-t.font=Font.mediumSystemFont(9);t.textColor=C.gray;t.lineLimit=1;
-forecastLabel.addSpacer();
+// Row 3 exists only when weather is usable. Failed/stale/unverified weather gets one warning, not placeholder cells.
+if(largeWeatherUsable){
+  const forecastLine=fixedRow(header,L.width,31);
+  const forecastLabel=fixedRow(forecastLine,headerNameWidth,31);
+  t=forecastLabel.addText("3日予報");
+  t.font=Font.mediumSystemFont(9);t.textColor=C.gray;t.lineLimit=1;
+  forecastLabel.addSpacer();
 
-forecastLine.addSpacer(headerGap);
+  forecastLine.addSpacer(headerGap);
 
-const forecastRail=fixedRow(forecastLine,headerWeatherWidth,31);
-const forecastDays=forecastGrid(W);
-forecastDays.forEach((day,i)=>{
-  const cell=forecastRail.addStack();cell.layoutVertically();cell.size=new Size(65,31);
+  const forecastRail=fixedRow(forecastLine,headerWeatherWidth,31);
+  const forecastDays=forecastGrid(W);
+  forecastDays.forEach((day,i)=>{
+    const cell=forecastRail.addStack();cell.layoutVertically();cell.size=new Size(65,31);
 
-  const dayLine=cell.addStack();dayLine.centerAlignContent();
-  dayLine.addSpacer();
-  let label=dayLine.addText(forecastDayLabel(day.date));
-  label.font=Font.semiboldSystemFont(9);label.textColor=C.sub;label.lineLimit=1;
-  dayLine.addSpacer();
+    const dayLine=cell.addStack();dayLine.centerAlignContent();
+    dayLine.addSpacer();
+    let label=dayLine.addText(forecastDayLabel(day.date));
+    label.font=Font.semiboldSystemFont(9);label.textColor=C.sub;label.lineLimit=1;
+    dayLine.addSpacer();
 
-  cell.addSpacer(1);
+    cell.addSpacer(1);
 
-  const wxLine=cell.addStack();wxLine.centerAlignContent();
-  wxLine.addSpacer();
-  icon(wxLine,weatherInfo(day.code)[1],C.blue,11);
-  wxLine.addSpacer(4);
-  let hi=wxLine.addText(numberLabel(day.max));
-  hi.font=Font.semiboldSystemFont(9);hi.textColor=C.red;
-  let slash=wxLine.addText("/");
-  slash.font=Font.mediumSystemFont(8);slash.textColor=C.gray;
-  let lo=wxLine.addText(numberLabel(day.min));
-  lo.font=Font.semiboldSystemFont(9);lo.textColor=C.blue;
-  wxLine.addSpacer();
+    const wxLine=cell.addStack();wxLine.centerAlignContent();
+    wxLine.addSpacer();
+    icon(wxLine,weatherInfo(day.code)[1],C.blue,11);
+    wxLine.addSpacer(4);
+    let hi=wxLine.addText(numberLabel(day.max));
+    hi.font=Font.semiboldSystemFont(9);hi.textColor=C.red;
+    let slash=wxLine.addText("/");
+    slash.font=Font.mediumSystemFont(8);slash.textColor=C.gray;
+    let lo=wxLine.addText(numberLabel(day.min));
+    lo.font=Font.semiboldSystemFont(9);lo.textColor=C.blue;
+    wxLine.addSpacer();
 
-  if(i<forecastDays.length-1)forecastRail.addSpacer(5);
-});
+    if(i<forecastDays.length-1)forecastRail.addSpacer(5);
+  });
+}
 
 w.addSpacer(4);
 
