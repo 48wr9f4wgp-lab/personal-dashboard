@@ -1,8 +1,8 @@
-// 俺専用ダッシュボード v1.65-github
+// 俺専用ダッシュボード v1.66-github
 // Remote main for Scriptable loader.
 // IMPORTANT: Script.complete() は loader 側で呼ぶ。
 
-const VERSION = "1.65-github";
+const VERSION = "1.66-github";
 
 const USER = globalThis.ORE_DASH_CONFIG || {};
 const RUN_NOW = new Date();
@@ -771,7 +771,7 @@ if(resolveFamily()==="medium"){
   return;
 }
 
-// LARGE v1.65: compact future-weather row with guaranteed readable day/icon/high-low.
+// LARGE v1.66: tomorrow-only forecast for a cleaner date/current-weather hierarchy.
 // Same data/design language as Medium, but uses the extra area for broader context.
 const L={width:329,dayWidth:38,timeWidth:44,iconWidth:14,columnGap:3};
 const runtime=globalThis.ORE_DASH_RUNTIME||{};
@@ -837,29 +837,25 @@ if(largeWeatherUsable){
 
   if(largeForecastUsable){
     const forecastRow=fixedRow(weatherPane,headerRightWidth,15);
-    const forecastDays=forecastGrid(W);
-    forecastDays.forEach((day,index)=>{
-      const item=fixedRow(forecastRow,65,15);
-      item.addSpacer();
+    const tomorrow=forecastGrid(W)[0];
 
-      const forecastDate=parseISODate(day.date);
-      let dayText=item.addText(forecastDate?String(forecastDate.getDate()):"--");
-      dayText.font=Font.semiboldSystemFont(8);dayText.textColor=C.sub;dayText.lineLimit=1;
-      item.addSpacer(2);
+    forecastRow.addSpacer();
 
-      icon(item,weatherInfo(day.code)[1],C.blue,9);
-      item.addSpacer(2);
+    let tomorrowLabel=forecastRow.addText("明日");
+    tomorrowLabel.font=Font.semiboldSystemFont(9);tomorrowLabel.textColor=C.sub;tomorrowLabel.lineLimit=1;
+    forecastRow.addSpacer(5);
 
-      let hi=item.addText(numberLabel(day.max));
-      hi.font=Font.semiboldSystemFont(9);hi.textColor=C.red;hi.lineLimit=1;
-      let slash=item.addText("/");
-      slash.font=Font.mediumSystemFont(8);slash.textColor=C.gray;slash.lineLimit=1;
-      let lo=item.addText(numberLabel(day.min));
-      lo.font=Font.semiboldSystemFont(9);lo.textColor=C.blue;lo.lineLimit=1;
+    icon(forecastRow,weatherInfo(tomorrow.code)[1],C.blue,10);
+    forecastRow.addSpacer(5);
 
-      item.addSpacer();
-      if(index<forecastDays.length-1)forecastRow.addSpacer(5);
-    });
+    let hi=forecastRow.addText(numberLabel(tomorrow.max)+"°");
+    hi.font=Font.semiboldSystemFont(10);hi.textColor=C.red;hi.lineLimit=1;
+
+    let slash=forecastRow.addText(" / ");
+    slash.font=Font.mediumSystemFont(9);slash.textColor=C.gray;slash.lineLimit=1;
+
+    let lo=forecastRow.addText(numberLabel(tomorrow.min)+"°");
+    lo.font=Font.semiboldSystemFont(10);lo.textColor=C.blue;lo.lineLimit=1;
   }else if(W.partial){
     const forecastWarning=fixedRow(weatherPane,headerRightWidth,15);
     forecastWarning.addSpacer();
