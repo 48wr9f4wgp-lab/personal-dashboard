@@ -1,8 +1,8 @@
-// 俺専用ダッシュボード v1.64-github
+// 俺専用ダッシュボード v1.65-github
 // Remote main for Scriptable loader.
 // IMPORTANT: Script.complete() は loader 側で呼ぶ。
 
-const VERSION = "1.64-github";
+const VERSION = "1.65-github";
 
 const USER = globalThis.ORE_DASH_CONFIG || {};
 const RUN_NOW = new Date();
@@ -771,7 +771,7 @@ if(resolveFamily()==="medium"){
   return;
 }
 
-// LARGE v1.64: two-column header; future weather reduced to a compact supplemental row.
+// LARGE v1.65: compact future-weather row with guaranteed readable day/icon/high-low.
 // Same data/design language as Medium, but uses the extra area for broader context.
 const L={width:329,dayWidth:38,timeWidth:44,iconWidth:14,columnGap:3};
 const runtime=globalThis.ORE_DASH_RUNTIME||{};
@@ -842,12 +842,13 @@ if(largeWeatherUsable){
       const item=fixedRow(forecastRow,65,15);
       item.addSpacer();
 
-      let dayText=item.addText(forecastDayLabel(day.date));
-      dayText.font=Font.mediumSystemFont(8);dayText.textColor=C.sub;dayText.lineLimit=1;
-      item.addSpacer(3);
+      const forecastDate=parseISODate(day.date);
+      let dayText=item.addText(forecastDate?String(forecastDate.getDate()):"--");
+      dayText.font=Font.semiboldSystemFont(8);dayText.textColor=C.sub;dayText.lineLimit=1;
+      item.addSpacer(2);
 
-      icon(item,weatherInfo(day.code)[1],C.blue,10);
-      item.addSpacer(3);
+      icon(item,weatherInfo(day.code)[1],C.blue,9);
+      item.addSpacer(2);
 
       let hi=item.addText(numberLabel(day.max));
       hi.font=Font.semiboldSystemFont(9);hi.textColor=C.red;hi.lineLimit=1;
