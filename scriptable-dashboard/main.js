@@ -1,8 +1,8 @@
-// 俺専用ダッシュボード v1.67-github
+// 俺専用ダッシュボード v1.68-github
 // Remote main for Scriptable loader.
 // IMPORTANT: Script.complete() は loader 側で呼ぶ。
 
-const VERSION = "1.67-github";
+const VERSION = "1.68-github";
 
 const USER = globalThis.ORE_DASH_CONFIG || {};
 const RUN_NOW = new Date();
@@ -771,7 +771,7 @@ if(resolveFamily()==="medium"){
   return;
 }
 
-// LARGE v1.67: current-weather header + dedicated six-day weather card.
+// LARGE v1.68: rebalance vertical spacing to protect the top header without shrinking type.
 // Same data/design language as Medium, but uses the extra area for broader context.
 const L={width:329,dayWidth:38,timeWidth:44,iconWidth:14,columnGap:3};
 const runtime=globalThis.ORE_DASH_RUNTIME||{};
@@ -779,7 +779,7 @@ const largeState=mediumState(eventsData,upcomingData,deadlineData,W,position,run
 const largeDeadlines=actionableDeadlines.slice(0,2);
 
 const w=new ListWidget();
-w.setPadding(5,14,10,14);
+w.setPadding(8,14,8,14);
 w.backgroundColor=C.bg;
 w.url=calendarURL();
 
@@ -839,12 +839,12 @@ if(largeWeatherUsable){
   t.font=Font.semiboldSystemFont(10);t.textColor=C.orange;t.lineLimit=1;
 }
 
-w.addSpacer(5);
+w.addSpacer(4);
 
 // SCHEDULE: six-row overview, using the same when | time | icon | content grammar as Medium.
 const scheduleCard=mkCard(w);
 scheduleCard.size=new Size(L.width,0);
-scheduleCard.setPadding(8,12,8,12);
+scheduleCard.setPadding(6,12,6,12);
 
 const sh=scheduleCard.addStack();sh.centerAlignContent();
 let sht=sh.addText("予定");
@@ -857,7 +857,7 @@ if(schedulePartial){
   const st=sh.addText("一部取得失敗");
   st.font=Font.systemFont(8);st.textColor=C.orange;
 }
-scheduleCard.addSpacer(5);
+scheduleCard.addSpacer(4);
 
 if(!scheduleRows.length){
   const empty=scheduleCard.addText(schedulePartial?"予定を取得できません":"直近の予定なし");
@@ -897,17 +897,17 @@ if(!scheduleRows.length){
 
     if(i<scheduleRows.length-1){
       const next=scheduleRows[i+1];
-      scheduleCard.addSpacer(next&&!sameCalendarDay(it.date,next.date)?6:3);
+      scheduleCard.addSpacer(next&&!sameCalendarDay(it.date,next.date)?5:2);
     }
   });
 }
 
-w.addSpacer(6);
+w.addSpacer(4);
 
 // DEADLINES: Large intentionally shows two. More belongs in Calendar, not on the home screen.
 const deadlineCard=mkCard(w);
 deadlineCard.size=new Size(L.width,0);
-deadlineCard.setPadding(9,12,9,12);
+deadlineCard.setPadding(7,12,7,12);
 
 const dh=deadlineCard.addStack();dh.centerAlignContent();
 let dht=dh.addText("重要期限");
@@ -919,7 +919,7 @@ if(deadlineData.ok&&actionableDeadlines.length>largeDeadlines.length){
   const more=dh.addText("直近2件");
   more.font=Font.systemFont(8);more.textColor=C.gray;
 }
-deadlineCard.addSpacer(6);
+deadlineCard.addSpacer(5);
 
 if(!deadlineData.ok){
   t=deadlineCard.addText("取得失敗");
@@ -952,11 +952,11 @@ if(!deadlineData.ok){
     title.textColor=C.text;
     title.lineLimit=2;
 
-    if(i<largeDeadlines.length-1) deadlineCard.addSpacer(8);
+    if(i<largeDeadlines.length-1) deadlineCard.addSpacer(6);
   });
 }
 
-w.addSpacer(6);
+w.addSpacer(4);
 
 // WEATHER: six-day overview to replace the separate Weathernews home-screen widget.
 if(largeWeatherUsable){
@@ -969,7 +969,7 @@ if(largeWeatherUsable){
 
   const weekCard=mkCard(w);
   weekCard.size=new Size(L.width,0);
-  weekCard.setPadding(7,10,7,10);
+  weekCard.setPadding(6,10,6,10);
 
   const wh=weekCard.addStack();wh.centerAlignContent();
   let wt=wh.addText("週間天気");
@@ -981,7 +981,7 @@ if(largeWeatherUsable){
     warn.font=Font.systemFont(8);warn.textColor=C.orange;
   }
 
-  weekCard.addSpacer(4);
+  weekCard.addSpacer(3);
 
   if(weekComplete){
     const grid=weekCard.addStack();
