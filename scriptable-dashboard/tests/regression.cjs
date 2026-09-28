@@ -201,6 +201,27 @@ async function main(){
     const j=weatherJSON();j.daily.temperature_2m_max[0]=10;j.daily.temperature_2m_min[0]=20;
     const r=await run(source,{data:j,family:'large'});const tt=texts(r.widget);assert.ok(!tt.includes('10/20'));
   });
+  await test('Medium weather failure hides fake forecast placeholders',async()=>{
+    const r=await run(source,{family:'medium',weatherError:true,runtime:{codeSource:'network'}});const tt=texts(r.widget);
+    assert.ok(tt.includes('天気を取得できません'));
+    assert.equal(tt.filter(t=>t==='--').length,0);
+    assert.equal(tt.filter(t=>t==='/').length,0);
+  });
+  await test('Medium fallback warning stays explicit during weather failure',async()=>{
+    const r=await run(source,{family:'medium',weatherError:true,runtime:{codeSource:'lastGood'}});const tt=texts(r.widget);
+    assert.ok(tt.includes('前回コード'));assert.ok(tt.includes('天気を取得できません'));
+    assert.equal(tt.filter(t=>t==='前回コード').length,1);
+  });
+  await test('Medium unknown source is explicit',async()=>{
+    const r=await run(source,{family:'medium',runtime:{}});const tt=texts(r.widget);
+    assert.ok(tt.includes('取得元不明'));
+  });
+  await test('Medium partial forecast hides incomplete cells instead of publishing placeholders',async()=>{
+    const j=weatherJSON();j.daily.temperature_2m_max[2]=null;
+    const r=await run(source,{family:'medium',data:j,runtime:{codeSource:'network'}});const tt=texts(r.widget);
+    assert.equal(tt.filter(t=>t==='--').length,0);assert.equal(tt.filter(t=>t==='/').length,0);
+    assert.ok(tt.includes('予報一部未取得'));
+  });
   const timestampCases=[
     ['2030-01-30T12:00',32400,'2030-01-30T03:00:00.000Z'],
     ['2030-01-30T12:00:00+09:00',0,'2030-01-30T03:00:00.000Z'],
