@@ -1,8 +1,8 @@
-// 俺専用ダッシュボード v1.70-github
+// 俺専用ダッシュボード v1.71-github
 // Remote main for Scriptable loader.
 // IMPORTANT: Script.complete() は loader 側で呼ぶ。
 
-const VERSION = "1.70-github";
+const VERSION = "1.71-github";
 
 const USER = globalThis.ORE_DASH_CONFIG || {};
 const RUN_NOW = new Date();
@@ -797,7 +797,7 @@ if(resolveFamily()==="medium"){
   return;
 }
 
-// LARGE v1.70: weather semantics/freshness audit; current precipitation cross-check + as-of time.
+// LARGE v1.71: weather-first header; timestamp separated from temperature; daily rain in the week card.
 // Same data/design language as Medium, but uses the extra area for broader context.
 const L={width:329,dayWidth:38,timeWidth:44,iconWidth:14,columnGap:3};
 const runtime=globalThis.ORE_DASH_RUNTIME||{};
@@ -826,63 +826,65 @@ w.url=calendarURL();
 // OVERVIEW HEADER
 const header=w.addStack();header.layoutVertically();header.size=new Size(L.width,0);
 
-// Top weather area: left = date/place, right = current weather. Future weather lives in its own bottom card.
+// Top weather area: left = date/place/as-of, right = weather first, then temperatures.
+// Fixed row heights include room for the text; the complete header has a 50pt budget.
 const headerLeftWidth=112;
 const headerGap=12;
 const headerRightWidth=L.width-headerLeftWidth-headerGap;
+const headerHeight=50;
 const largeWeatherUsable=W.ok&&!W.stale&&!W.timeUnverified;
 
 const headerGrid=header.addStack();
-headerGrid.size=new Size(L.width,43);
+headerGrid.size=new Size(L.width,headerHeight);
 headerGrid.topAlignContent();
 
-// Left column: date is primary, place is supporting context.
 const identity=headerGrid.addStack();
 identity.layoutVertically();
-identity.size=new Size(headerLeftWidth,43);
+identity.size=new Size(headerLeftWidth,headerHeight);
 
-let t=identity.addText(todayText());
-t.font=Font.semiboldSystemFont(15);t.textColor=C.text;t.lineLimit=1;t.minimumScaleFactor=0.9;
-identity.addSpacer(2);
+const dateLine=fixedRow(identity,headerLeftWidth,20);
+let t=singleText(dateLine,todayText(),Font.semiboldSystemFont(15),C.text);
+t.minimumScaleFactor=0.9;
+dateLine.addSpacer();
+identity.addSpacer(1);
 
-t=identity.addText((position.ok?"":"予備 ")+position.city);
-t.font=Font.mediumSystemFont(10);t.textColor=C.sub;t.lineLimit=1;t.minimumScaleFactor=0.85;
+const placeLine=fixedRow(identity,headerLeftWidth,12);
+t=singleText(placeLine,(position.ok?"":"予備 ")+position.city,Font.mediumSystemFont(10),C.sub);
+t.minimumScaleFactor=0.85;
+placeLine.addSpacer();
+
+// Keep the source time visible without competing with the weather headline.
+if(largeWeatherUsable){
+  identity.addSpacer(2);
+  const asOfLine=fixedRow(identity,headerLeftWidth,12);
+  const asOf=weatherAsOfLabel(W);
+  singleText(asOfLine,asOf?"天気 "+asOf:"天気 時刻不明",Font.mediumSystemFont(9),asOf?C.sub:C.orange);
+  asOfLine.addSpacer();
+}
 
 headerGrid.addSpacer(headerGap);
 
-// Right column: current conditions only, with no competing future-forecast strip.
 const weatherPane=headerGrid.addStack();
 weatherPane.layoutVertically();
-weatherPane.size=new Size(headerRightWidth,43);
+weatherPane.size=new Size(headerRightWidth,headerHeight);
 
 if(largeWeatherUsable){
-  const currentLine=fixedRow(weatherPane,headerRightWidth,27);
-  currentLine.addSpacer();
+  // Weather name is a headline, not a small grey annotation beside the temperature.
+  const conditionLine=fixedRow(weatherPane,headerRightWidth,21);
+  conditionLine.addSpacer();
+  singleText(conditionLine,weatherName,Font.semiboldSystemFont(16),C.text);
+  conditionLine.addSpacer(6);
+  icon(conditionLine,weatherIcon,largeWeatherTint(weatherDisplayCode,W.isDay),20);
 
-  t=currentLine.addText(numberLabel(W.temp)+"°");
-  t.font=Font.boldSystemFont(31);t.textColor=C.text;t.lineLimit=1;
-  currentLine.addSpacer(7);
-
-  t=currentLine.addText(weatherName);
-  t.font=Font.semiboldSystemFont(12);t.textColor=C.sub;t.lineLimit=1;
-  currentLine.addSpacer(6);
-  icon(currentLine,weatherIcon,largeWeatherTint(weatherDisplayCode,W.isDay),22);
-  const weatherAsOf=weatherAsOfLabel(W);
-  if(weatherAsOf){
-    currentLine.addSpacer(5);
-    t=currentLine.addText(weatherAsOf);
-    t.font=Font.mediumSystemFont(8);t.textColor=C.gray;t.lineLimit=1;
-  }
-
-  const currentMeta=fixedRow(weatherPane,headerRightWidth,14);
-  currentMeta.addSpacer();
-  t=currentMeta.addText("↑"+numberLabel(W.max)+"°  ↓"+numberLabel(W.min)+"°  今日降水"+numberLabel(W.rain)+"%");
-  t.font=Font.mediumSystemFont(10);t.textColor=C.sub;t.lineLimit=1;
+  const temperatureLine=fixedRow(weatherPane,headerRightWidth,29);
+  temperatureLine.addSpacer();
+  singleText(temperatureLine,numberLabel(W.temp)+"°",Font.boldSystemFont(24),C.text);
+  temperatureLine.addSpacer(8);
+  singleText(temperatureLine,"↑"+numberLabel(W.max)+"°  ↓"+numberLabel(W.min)+"°",Font.mediumSystemFont(11),C.sub);
 }else{
   const weatherError=fixedRow(weatherPane,headerRightWidth,27);
   weatherError.addSpacer();
-  t=weatherError.addText(weatherFailureText(W));
-  t.font=Font.semiboldSystemFont(10);t.textColor=C.orange;t.lineLimit=1;
+  singleText(weatherError,weatherFailureText(W),Font.semiboldSystemFont(10),C.orange);
 }
 
 w.addSpacer(4);
@@ -1022,7 +1024,12 @@ if(largeWeatherUsable){
   wt.font=Font.boldSystemFont(12);wt.textColor=C.text;
   wh.addSpacer();
 
+  // Daily precipitation probability belongs with the daily forecast, not current conditions.
+  const rainKnown=numberOrNull(W.rain)!==null&&W.rain>=0&&W.rain<=100;
+  singleText(wh,rainKnown?"今日降水"+numberLabel(W.rain)+"%":"今日降水不明",Font.mediumSystemFont(9),rainKnown?C.sub:C.orange);
+
   if(!weekComplete){
+    wh.addSpacer(6);
     let warn=wh.addText("一部未取得");
     warn.font=Font.systemFont(8);warn.textColor=C.orange;
   }
