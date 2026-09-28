@@ -1,8 +1,8 @@
-// 俺専用ダッシュボード v1.73-github
+// 俺専用ダッシュボード v1.74-github
 // Remote main for Scriptable loader.
 // IMPORTANT: Script.complete() は loader 側で呼ぶ。
 
-const VERSION = "1.73-github";
+const VERSION = "1.74-github";
 
 const USER = globalThis.ORE_DASH_CONFIG || {};
 const RUN_NOW = new Date();
@@ -672,11 +672,18 @@ const shownDeadlines=actionableDeadlines.slice(0,CFG.deadlineMaxItems);
 
 const [weatherName,weatherIcon,weatherDisplayCode,weatherDisplayReason]=currentWeatherInfo(W);
 
-// MEDIUM v1.50: calendar first; one bounded header and four bounded content rows.
+// MEDIUM v1.74: calendar first; explicit source warning and no fake forecast placeholders.
 if(resolveFamily()==="medium"){
   const M=mediumMetrics();
   const runtime=globalThis.ORE_DASH_RUNTIME||{};
   const state=mediumState(eventsData,upcomingData,deadlineData,W,position,runtime);
+  const mediumWeatherUsable=W.ok&&!W.stale&&!W.timeUnverified;
+  const mediumForecastDays=forecastGrid(W);
+  const mediumForecastUsable=mediumWeatherUsable&&!W.partial&&mediumForecastDays.every(day=>
+    day&&day.code!==null&&day.max!==null&&day.min!==null);
+  const codeSourceWarning=runtime.codeSource==="lastGood"?"前回コード":runtime.codeSource==="network"?"":"取得元不明";
+  const dataIssues=state.issues.filter(issue=>issue!=="前回コード");
+  const dataLabel=dataIssues.length>1?"一部未取得":(dataIssues[0]||"");
   const mediumDeadline=actionableDeadlines[0]||null;
   const footerNeeded=!!mediumDeadline||!deadlineData.ok;
   const mediumRows=scheduleRows.slice(0,footerNeeded?4:5);
@@ -702,9 +709,11 @@ if(resolveFamily()==="medium"){
   singleText(dateMeta,shorten((position.ok?"":"予備 ")+position.city,9),Font.mediumSystemFont(9),C.sub);
   dateRow.addSpacer();
   const current=fixedRow(left,leftWidth,14);
-  if(M.compact&&state.label){
-    singleText(current,state.label,Font.semiboldSystemFont(10),C.orange);
-  }else if(W.ok&&!W.stale&&!W.timeUnverified){
+  if(M.compact&&codeSourceWarning){
+    singleText(current,codeSourceWarning,Font.semiboldSystemFont(10),C.orange);
+  }else if(M.compact&&dataLabel){
+    singleText(current,dataLabel,Font.semiboldSystemFont(10),C.orange);
+  }else if(mediumWeatherUsable){
     singleText(current,numberLabel(W.temp)+"°",Font.semiboldSystemFont(11),C.text);current.addSpacer(4);
     icon(current,weatherIcon,C.sub,11);current.addSpacer(4);
     singleText(current,"今日降水"+numberLabel(W.rain)+"%",Font.mediumSystemFont(9),C.sub);
@@ -714,20 +723,22 @@ if(resolveFamily()==="medium"){
   current.addSpacer();header.addSpacer(8);
 
   const forecasts=header.addStack();forecasts.size=new Size(M.forecastWidth,M.header);forecasts.topAlignContent();
-  forecastGrid(W).forEach((day,i)=>{
-    const cell=forecasts.addStack();cell.layoutVertically();cell.size=new Size(46,M.header);
-    // Stack text alignment requires spacers, identically on all three lines.
-    centeredRow(cell,46,12,row=>singleText(row,forecastDayLabel(day.date),Font.semiboldSystemFont(10),C.sub));
-    cell.addSpacer(1);
-    centeredRow(cell,46,14,row=>icon(row,weatherInfo(day.code)[1],C.blue,14));
-    cell.addSpacer(1);
-    centeredRow(cell,46,12,row=>{
-      singleText(row,numberLabel(day.max),Font.semiboldSystemFont(10),C.red);
-      singleText(row,"/",Font.mediumSystemFont(9),C.gray);
-      singleText(row,numberLabel(day.min),Font.semiboldSystemFont(10),C.blue);
+  if(mediumForecastUsable){
+    mediumForecastDays.forEach((day,i)=>{
+      const cell=forecasts.addStack();cell.layoutVertically();cell.size=new Size(46,M.header);
+      // Stack text alignment requires spacers, identically on all three lines.
+      centeredRow(cell,46,12,row=>singleText(row,forecastDayLabel(day.date),Font.semiboldSystemFont(10),C.sub));
+      cell.addSpacer(1);
+      centeredRow(cell,46,14,row=>icon(row,weatherInfo(day.code)[1],C.blue,14));
+      cell.addSpacer(1);
+      centeredRow(cell,46,12,row=>{
+        singleText(row,numberLabel(day.max),Font.semiboldSystemFont(10),C.red);
+        singleText(row,"/",Font.mediumSystemFont(9),C.gray);
+        singleText(row,numberLabel(day.min),Font.semiboldSystemFont(10),C.blue);
+      });
+      if(i<2)forecasts.addSpacer(4);
     });
-    if(i<2)forecasts.addSpacer(4);
-  });
+  }
   root.addSpacer(M.gap);
 
   const card=root.addStack();card.layoutVertically();card.size=new Size(M.width,bodyHeight);
@@ -736,7 +747,8 @@ if(resolveFamily()==="medium"){
   if(!M.compact){
     const head=fixedRow(card,contentWidth,M.heading);
     singleText(head,"予定",Font.boldSystemFont(11),C.text);head.addSpacer();
-    if(state.label)singleText(head,state.label,Font.semiboldSystemFont(9),C.orange);
+    if(codeSourceWarning)singleText(head,codeSourceWarning,Font.semiboldSystemFont(9),C.orange);
+    else if(dataLabel)singleText(head,dataLabel,Font.semiboldSystemFont(9),C.orange);
     else if(!config.runsInWidget)singleText(head,"v"+VERSION.replace("-github",""),Font.mediumSystemFont(8),C.sub);
     head.addSpacer(4);
     singleText(head,"表示 ",Font.mediumSystemFont(8),C.sub);
