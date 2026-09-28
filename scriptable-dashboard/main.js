@@ -1,8 +1,8 @@
-// 俺専用ダッシュボード v1.71-github
+// 俺専用ダッシュボード v1.72-github
 // Remote main for Scriptable loader.
 // IMPORTANT: Script.complete() は loader 側で呼ぶ。
 
-const VERSION = "1.71-github";
+const VERSION = "1.72-github";
 
 const USER = globalThis.ORE_DASH_CONFIG || {};
 const RUN_NOW = new Date();
@@ -552,17 +552,10 @@ function resolveFamily(){
 function currentWeatherInfo(weather){
   const rawCode=numberOrNull(weather&&weather.code);
   const code=rawCode===null?-1:rawCode;
-  const precipitation=numberOrNull(weather&&weather.currentPrecip);
-  const snowfall=numberOrNull(weather&&weather.currentSnowfall);
-
-  // Cross-check the model's current WMO code against its own current precipitation field.
-  // This is intentionally NOT based on daily precipitation probability.
-  if(snowfall!==null && snowfall>0 && ![71,73,75,77,85,86].includes(code)){
-    return ["雪","cloud.snow.fill",71,"precipitation-crosscheck"];
-  }
-  if(precipitation!==null && precipitation>=0.1 && [0,1,2,3].includes(code)){
-    return ["雨","cloud.rain.fill",61,"precipitation-crosscheck"];
-  }
+  // Preserve the provider's weather code, including thunderstorm and freezing-rain states.
+  // Precipitation/snowfall are interval totals, not a second instantaneous observation.
+  // Keep those values for diagnostics; never use them or daily probability to overwrite the code.
+  // Reference: https://open-meteo.com/en/docs (weather_code vs precipitation time aggregation).
 
   const info=weatherInfo(code);
   if(weather&&weather.isDay===false&&code===0)return [info[0],"moon.stars.fill",code,"weather-code"];
@@ -797,7 +790,7 @@ if(resolveFamily()==="medium"){
   return;
 }
 
-// LARGE v1.71: weather-first header; timestamp separated from temperature; daily rain in the week card.
+// LARGE v1.72: preserve weather codes; disclose fallback independently of weather availability.
 // Same data/design language as Medium, but uses the extra area for broader context.
 const L={width:329,dayWidth:38,timeWidth:44,iconWidth:14,columnGap:3};
 const runtime=globalThis.ORE_DASH_RUNTIME||{};
@@ -901,6 +894,13 @@ sht.textColor=C.text;
 sh.addSpacer();
 
 const schedulePartial=!eventsData.ok||!upcomingData.ok;
+// Keep the code-source warning outside the weather branch: even a failed weather request
+// must not hide fallback. Missing runtime metadata is unknown, never proof of a network load.
+const codeSourceWarning=runtime.codeSource==="lastGood"?"前回コード":runtime.codeSource==="network"?"":"取得元不明";
+if(codeSourceWarning){
+  singleText(sh,codeSourceWarning,Font.semiboldSystemFont(9),C.orange);
+  if(schedulePartial)sh.addSpacer(6);
+}
 if(schedulePartial){
   const st=sh.addText("一部取得失敗");
   st.font=Font.systemFont(8);st.textColor=C.orange;
