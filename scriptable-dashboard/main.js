@@ -1,8 +1,8 @@
-// 俺専用ダッシュボード v1.69-github
+// 俺専用ダッシュボード v1.70-github
 // Remote main for Scriptable loader.
 // IMPORTANT: Script.complete() は loader 側で呼ぶ。
 
-const VERSION = "1.69-github";
+const VERSION = "1.70-github";
 
 const USER = globalThis.ORE_DASH_CONFIG || {};
 const RUN_NOW = new Date();
@@ -101,9 +101,10 @@ function weatherFailureText(weather){
 }
 async function getWeather(pos){
   const missing={ok:false,partial:true,stale:false,timeUnverified:false,
-    temp:null,code:-1,isDay:null,max:null,min:null,rain:null,daily:[],localDate:isoDay(RUN_NOW)};
+    temp:null,code:-1,isDay:null,currentPrecip:null,currentRain:null,currentShowers:null,currentSnowfall:null,
+    max:null,min:null,rain:null,daily:[],localDate:isoDay(RUN_NOW),sourceTime:"",apiLat:null,apiLon:null};
   try{
-    const u="https://api.open-meteo.com/v1/forecast?latitude="+pos.lat+"&longitude="+pos.lon+"&current=temperature_2m,weather_code,is_day&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max&timezone=auto&forecast_days=7";
+    const u="https://api.open-meteo.com/v1/forecast?latitude="+pos.lat+"&longitude="+pos.lon+"&current=temperature_2m,weather_code,is_day,precipitation,rain,showers,snowfall&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max&timezone=auto&forecast_days=7&cell_selection=nearest";
     const r=new Request(u);r.timeoutInterval=10;const j=await r.loadJSON();
     if(!j||j.error||!j.current)return missing;
     const receivedAt=new Date();
@@ -122,19 +123,26 @@ async function getWeather(pos){
     })).filter(day=>parseISODate(day.date));
     const temp=roundedOrNull(j.current.temperature_2m),code=numberOrNull(j.current.weather_code);
     const isDay=j.current.is_day===0?false:j.current.is_day===1?true:null;
+    const currentPrecip=numberOrNull(j.current.precipitation);
+    const currentRain=numberOrNull(j.current.rain);
+    const currentShowers=numberOrNull(j.current.showers);
+    const currentSnowfall=numberOrNull(j.current.snowfall);
     const first=daily.find(day=>day.date===localDate)||{};
     const base=parseISODate(localDate);
     const required=[0,1,2,3].map(n=>daily.find(day=>day.date===isoDay(addDays(base,n))));
     const partial=stale||timeUnverified||isDay===null||required.some(day=>!day||[day.code,day.max,day.min,day.rain].some(x=>x===null));
     return {ok:temp!==null&&code!==null,partial,stale,timeUnverified,temp,code:code===null?-1:code,isDay,
+      currentPrecip,currentRain,currentShowers,currentSnowfall,
       max:first.max??null,min:first.min??null,rain:first.rain??null,daily,localDate,
-      validAt,receivedAt,sourceLocalDate:String(j.current.time||"").slice(0,10)};
+      validAt,receivedAt,sourceTime:String(j.current.time||""),sourceLocalDate:String(j.current.time||"").slice(0,10),
+      apiLat:numberOrNull(j.latitude),apiLon:numberOrNull(j.longitude)};
   }catch(_){return missing;}
 }
 
 function weatherInfo(code){
   if(code===0)return ["快晴","sun.max.fill"];
-  if([1,2].includes(code))return ["晴れ","cloud.sun.fill"];
+  if(code===1)return ["晴れ","cloud.sun.fill"];
+  if(code===2)return ["一部曇り","cloud.sun.fill"];
   if(code===3)return ["くもり","cloud.fill"];
   if([45,48].includes(code))return ["霧","cloud.fog.fill"];
   if([51,53,55,56,57].includes(code))return ["霧雨","cloud.drizzle.fill"];
@@ -541,11 +549,29 @@ function resolveFamily(){
   const requested=String(query.family||CFG.previewFamily||"medium").toLowerCase();
   return requested==="large"?"large":"medium";
 }
-function currentWeatherInfo(code,isDay){
+function currentWeatherInfo(weather){
+  const rawCode=numberOrNull(weather&&weather.code);
+  const code=rawCode===null?-1:rawCode;
+  const precipitation=numberOrNull(weather&&weather.currentPrecip);
+  const snowfall=numberOrNull(weather&&weather.currentSnowfall);
+
+  // Cross-check the model's current WMO code against its own current precipitation field.
+  // This is intentionally NOT based on daily precipitation probability.
+  if(snowfall!==null && snowfall>0 && ![71,73,75,77,85,86].includes(code)){
+    return ["雪","cloud.snow.fill",71,"precipitation-crosscheck"];
+  }
+  if(precipitation!==null && precipitation>=0.1 && [0,1,2,3].includes(code)){
+    return ["雨","cloud.rain.fill",61,"precipitation-crosscheck"];
+  }
+
   const info=weatherInfo(code);
-  if(isDay===false&&code===0)return [info[0],"moon.stars.fill"];
-  if(isDay===false&&[1,2].includes(code))return [info[0],"cloud.moon.fill"];
-  return info;
+  if(weather&&weather.isDay===false&&code===0)return [info[0],"moon.stars.fill",code,"weather-code"];
+  if(weather&&weather.isDay===false&&[1,2].includes(code))return [info[0],"cloud.moon.fill",code,"weather-code"];
+  return [info[0],info[1],code,"weather-code"];
+}
+function weatherAsOfLabel(weather){
+  const m=/T(\d{2}:\d{2})/.exec(String(weather&&weather.sourceTime||""));
+  return m?m[1]+"推定":"";
 }
 function forecastGrid(weather,now=RUN_NOW){
   const base=parseISODate(weather.localDate)||dayStart(now);
@@ -632,7 +658,7 @@ const actionableDeadlines=deadlineData.items.filter(it=>{
 });
 const shownDeadlines=actionableDeadlines.slice(0,CFG.deadlineMaxItems);
 
-const [weatherName,weatherIcon]=currentWeatherInfo(W.code,W.isDay);
+const [weatherName,weatherIcon,weatherDisplayCode,weatherDisplayReason]=currentWeatherInfo(W);
 
 // MEDIUM v1.50: calendar first; one bounded header and four bounded content rows.
 if(resolveFamily()==="medium"){
@@ -771,7 +797,7 @@ if(resolveFamily()==="medium"){
   return;
 }
 
-// LARGE v1.69: semantic weather icon colors for faster visual scanning.
+// LARGE v1.70: weather semantics/freshness audit; current precipitation cross-check + as-of time.
 // Same data/design language as Medium, but uses the extra area for broader context.
 const L={width:329,dayWidth:38,timeWidth:44,iconWidth:14,columnGap:3};
 const runtime=globalThis.ORE_DASH_RUNTIME||{};
@@ -840,11 +866,17 @@ if(largeWeatherUsable){
   t=currentLine.addText(weatherName);
   t.font=Font.semiboldSystemFont(12);t.textColor=C.sub;t.lineLimit=1;
   currentLine.addSpacer(6);
-  icon(currentLine,weatherIcon,largeWeatherTint(W.code,W.isDay),22);
+  icon(currentLine,weatherIcon,largeWeatherTint(weatherDisplayCode,W.isDay),22);
+  const weatherAsOf=weatherAsOfLabel(W);
+  if(weatherAsOf){
+    currentLine.addSpacer(5);
+    t=currentLine.addText(weatherAsOf);
+    t.font=Font.mediumSystemFont(8);t.textColor=C.gray;t.lineLimit=1;
+  }
 
   const currentMeta=fixedRow(weatherPane,headerRightWidth,14);
   currentMeta.addSpacer();
-  t=currentMeta.addText("↑"+numberLabel(W.max)+"°  ↓"+numberLabel(W.min)+"°  降水"+numberLabel(W.rain)+"%");
+  t=currentMeta.addText("↑"+numberLabel(W.max)+"°  ↓"+numberLabel(W.min)+"°  今日降水"+numberLabel(W.rain)+"%");
   t.font=Font.mediumSystemFont(10);t.textColor=C.sub;t.lineLimit=1;
 }else{
   const weatherError=fixedRow(weatherPane,headerRightWidth,27);
@@ -1033,5 +1065,11 @@ if(largeWeatherUsable){
 
 w.addSpacer();
 w.refreshAfterDate=nextRefresh();
+console.log("[weather] source=open-meteo-best-match cell=nearest city="+position.city+
+  " requested="+Number(position.lat).toFixed(3)+","+Number(position.lon).toFixed(3)+
+  " grid="+(numberOrNull(W.apiLat)===null?"?":Number(W.apiLat).toFixed(3))+","+(numberOrNull(W.apiLon)===null?"?":Number(W.apiLon).toFixed(3))+
+  " valid="+String(W.sourceTime||"?")+" code="+W.code+" displayCode="+weatherDisplayCode+
+  " reason="+weatherDisplayReason+" precip="+String(W.currentPrecip)+" rain="+String(W.currentRain)+
+  " showers="+String(W.currentShowers)+" snow="+String(W.currentSnowfall));
 console.log("[dashboard] "+VERSION+" large; loader="+(runtime.codeSource||"unknown")+"; "+largeState.issues.join(","));
 if(config.runsInWidget) Script.setWidget(w); else await w.presentLarge();
