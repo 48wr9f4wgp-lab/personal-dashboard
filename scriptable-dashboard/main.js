@@ -1,8 +1,8 @@
-// 俺専用ダッシュボード v1.72-github
+// 俺専用ダッシュボード v1.73-github
 // Remote main for Scriptable loader.
 // IMPORTANT: Script.complete() は loader 側で呼ぶ。
 
-const VERSION = "1.72-github";
+const VERSION = "1.73-github";
 
 const USER = globalThis.ORE_DASH_CONFIG || {};
 const RUN_NOW = new Date();
@@ -117,16 +117,22 @@ async function getWeather(pos){
     const timeUnverified=validAt===null||offset===null||(ageMs!==null&&ageMs < -WEATHER_FUTURE_TOLERANCE_MS);
     const d=j.daily||{};
     const read=(key,i)=>Array.isArray(d[key])?d[key][i]:null;
-    const daily=(Array.isArray(d.time)?d.time:[]).map((date,i)=>({
-      date,code:numberOrNull(read("weather_code",i)),max:roundedOrNull(read("temperature_2m_max",i)),
-      min:roundedOrNull(read("temperature_2m_min",i)),rain:roundedOrNull(read("precipitation_probability_max",i))
-    })).filter(day=>parseISODate(day.date));
-    const temp=roundedOrNull(j.current.temperature_2m),code=numberOrNull(j.current.weather_code);
+    const daily=(Array.isArray(d.time)?d.time:[]).map((date,i)=>{
+      const code=weatherCodeOrNull(read("weather_code",i));
+      const max=temperatureOrNull(read("temperature_2m_max",i));
+      const min=temperatureOrNull(read("temperature_2m_min",i));
+      const rain=precipitationProbabilityOrNull(read("precipitation_probability_max",i));
+      const coherent=max!==null&&min!==null&&max>=min;
+      return {date,code,max:coherent?Math.round(max):null,min:coherent?Math.round(min):null,
+        rain:rain===null?null:Math.round(rain)};
+    }).filter(day=>parseISODate(day.date));
+    const tempRaw=temperatureOrNull(j.current.temperature_2m);
+    const temp=tempRaw===null?null:Math.round(tempRaw),code=weatherCodeOrNull(j.current.weather_code);
     const isDay=j.current.is_day===0?false:j.current.is_day===1?true:null;
-    const currentPrecip=numberOrNull(j.current.precipitation);
-    const currentRain=numberOrNull(j.current.rain);
-    const currentShowers=numberOrNull(j.current.showers);
-    const currentSnowfall=numberOrNull(j.current.snowfall);
+    const currentPrecip=precipitationAmountOrNull(j.current.precipitation);
+    const currentRain=precipitationAmountOrNull(j.current.rain);
+    const currentShowers=precipitationAmountOrNull(j.current.showers);
+    const currentSnowfall=precipitationAmountOrNull(j.current.snowfall);
     const first=daily.find(day=>day.date===localDate)||{};
     const base=parseISODate(localDate);
     const required=[0,1,2,3].map(n=>daily.find(day=>day.date===isoDay(addDays(base,n))));
@@ -135,7 +141,7 @@ async function getWeather(pos){
       currentPrecip,currentRain,currentShowers,currentSnowfall,
       max:first.max??null,min:first.min??null,rain:first.rain??null,daily,localDate,
       validAt,receivedAt,sourceTime:String(j.current.time||""),sourceLocalDate:String(j.current.time||"").slice(0,10),
-      apiLat:numberOrNull(j.latitude),apiLon:numberOrNull(j.longitude)};
+      apiLat:coordinateOrNull(j.latitude,-90,90),apiLon:coordinateOrNull(j.longitude,-180,180)};
   }catch(_){return missing;}
 }
 
@@ -524,6 +530,19 @@ function anniversary(){
 
 // Shared audit fixes. No Calendar write APIs are used.
 function numberOrNull(value){return typeof value==="number"&&Number.isFinite(value)?value:null;}
+function boundedNumberOrNull(value,min,max){
+  const n=numberOrNull(value);
+  return n!==null&&n>=min&&n<=max?n:null;
+}
+const WMO_WEATHER_CODES=new Set([0,1,2,3,45,48,51,53,55,56,57,61,63,65,66,67,71,73,75,77,80,81,82,85,86,95,96,99]);
+function weatherCodeOrNull(value){
+  const n=numberOrNull(value);
+  return n!==null&&Number.isInteger(n)&&WMO_WEATHER_CODES.has(n)?n:null;
+}
+function temperatureOrNull(value){return boundedNumberOrNull(value,-100,70);}
+function precipitationProbabilityOrNull(value){return boundedNumberOrNull(value,0,100);}
+function precipitationAmountOrNull(value){return boundedNumberOrNull(value,0,1000);}
+function coordinateOrNull(value,min,max){return boundedNumberOrNull(value,min,max);}
 function roundedOrNull(value){const n=numberOrNull(value);return n===null?null:Math.round(n);}
 function numberLabel(value){return numberOrNull(value)===null?"--":String(value);}
 function parseISODate(value){
@@ -550,8 +569,8 @@ function resolveFamily(){
   return requested==="large"?"large":"medium";
 }
 function currentWeatherInfo(weather){
-  const rawCode=numberOrNull(weather&&weather.code);
-  const code=rawCode===null?-1:rawCode;
+  const parsedCode=weatherCodeOrNull(weather&&weather.code);
+  const code=parsedCode===null?-1:parsedCode;
   // Preserve the provider's weather code, including thunderstorm and freezing-rain states.
   // Precipitation/snowfall are interval totals, not a second instantaneous observation.
   // Keep those values for diagnostics; never use them or daily probability to overwrite the code.
@@ -790,7 +809,7 @@ if(resolveFamily()==="medium"){
   return;
 }
 
-// LARGE v1.72: preserve weather codes; disclose fallback independently of weather availability.
+// LARGE v1.73: preserve weather codes; disclose fallback independently of weather availability.
 // Same data/design language as Medium, but uses the extra area for broader context.
 const L={width:329,dayWidth:38,timeWidth:44,iconWidth:14,columnGap:3};
 const runtime=globalThis.ORE_DASH_RUNTIME||{};
