@@ -135,7 +135,7 @@ async function run(code=source,opts={}){
 async function funcs(code=source,opts={}){
   const prefix=code.slice(0,code.indexOf('const fetchedAt=new Date(RUN_NOW);'));
   const e=env(opts);
-  e.api=await new vm.Script('(async function(){\n'+prefix+'\nreturn {currentWeatherInfo,weatherInfo,getWeather,weatherTimestamp,forecastGrid,isInactiveTitle,isDeadlineEvent,safeSoccerTitle,calendarURL};})()').runInContext(e.context);
+  e.api=await new vm.Script('(async function(){\n'+prefix+'\nreturn {currentWeatherInfo,weatherInfo,getWeather,weatherTimestamp,forecastGrid,isInactiveTitle,isDeadlineEvent,safeSoccerTitle,calendarURL,weatherCodeOrNull,temperatureOrNull,precipitationProbabilityOrNull,precipitationAmountOrNull,coordinateOrNull};})()').runInContext(e.context);
   return e;
 }
 function nodes(root,kind){return [root,...root.children.flatMap(c=>nodes(c))].filter(n=>!kind||n.kind===kind);}
@@ -175,6 +175,32 @@ async function main(){
       const r=f.api.currentWeatherInfo(input);assert.equal(r[0],'不明');assert.equal(r[1],'questionmark.circle.fill');
     });
   }
+  for(const code of [0,1,2,3,45,48,51,53,55,56,57,61,63,65,66,67,71,73,75,77,80,81,82,85,86,95,96,99])
+    await test('Weather parser accepts supported WMO '+code,()=>assert.equal(f.api.weatherCodeOrNull(code),code));
+  for(const code of [-1,4,44,49,50,58,60,68,70,78,79,83,84,87,94,100,777,1.5,'61',NaN,Infinity,null,undefined])
+    await test('Weather parser rejects unsupported WMO '+String(code),()=>assert.equal(f.api.weatherCodeOrNull(code),null));
+  for(const [value,expected] of [[-100,-100],[70,70],[-100.1,null],[70.1,null],['22',null],[NaN,null],[Infinity,null]])
+    await test('Temperature bounds '+String(value),()=>assert.equal(f.api.temperatureOrNull(value),expected));
+  for(const [value,expected] of [[0,0],[100,100],[-0.1,null],[100.1,null],['92',null],[NaN,null],[Infinity,null]])
+    await test('Precipitation probability bounds '+String(value),()=>assert.equal(f.api.precipitationProbabilityOrNull(value),expected));
+  for(const [value,expected] of [[0,0],[1000,1000],[-0.1,null],[1000.1,null],['1',null],[NaN,null],[Infinity,null]])
+    await test('Precipitation amount bounds '+String(value),()=>assert.equal(f.api.precipitationAmountOrNull(value),expected));
+  for(const [value,min,max,expected] of [[-90,-90,90,-90],[90,-90,90,90],[-90.1,-90,90,null],[180,-180,180,180],[180.1,-180,180,null]])
+    await test('Coordinate bounds '+String(value),()=>assert.equal(f.api.coordinateOrNull(value,min,max),expected));
+  await test('Invalid current WMO code fails live weather instead of rendering unknown as current',async()=>{
+    const j=weatherJSON();j.current.weather_code=777;const r=await run(source,{data:j,family:'large'});assert.ok(texts(r.widget).includes('天気を取得できません'));
+  });
+  await test('Invalid current temperature fails live weather',async()=>{
+    const j=weatherJSON();j.current.temperature_2m=99;const r=await run(source,{data:j,family:'large'});assert.ok(texts(r.widget).includes('天気を取得できません'));
+  });
+  await test('Invalid daily probability becomes partial, never 101 percent',async()=>{
+    const j=weatherJSON();j.daily.precipitation_probability_max[0]=101;const r=await run(source,{data:j,family:'large'});const tt=texts(r.widget);
+    assert.ok(!tt.includes('今日降水101%'));assert.ok(tt.includes('今日降水不明')||tt.includes('一部未取得'));
+  });
+  await test('Inverted daily high/low becomes partial instead of publishing impossible pair',async()=>{
+    const j=weatherJSON();j.daily.temperature_2m_max[0]=10;j.daily.temperature_2m_min[0]=20;
+    const r=await run(source,{data:j,family:'large'});const tt=texts(r.widget);assert.ok(!tt.includes('10/20'));
+  });
   const timestampCases=[
     ['2030-01-30T12:00',32400,'2030-01-30T03:00:00.000Z'],
     ['2030-01-30T12:00:00+09:00',0,'2030-01-30T03:00:00.000Z'],
