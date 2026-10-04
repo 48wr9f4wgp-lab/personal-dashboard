@@ -1,4 +1,4 @@
-// 俺専用ダッシュボード Loader v1.3
+// 俺専用ダッシュボード Loader v1.4
 // 既存の ORE_DASH_CONFIG（個人設定）は端末内に残す。公開Repoへ転記しない。
 globalThis.ORE_DASH_CONFIG = globalThis.ORE_DASH_CONFIG || {};
 
@@ -6,16 +6,27 @@ const REMOTE = "https://raw.githubusercontent.com/48wr9f4wgp-lab/personal-dashbo
 const fm = FileManager.local();
 const dir = fm.joinPath(fm.documentsDirectory(), "ore-dashboard-loader");
 const cachePath = fm.joinPath(dir, "main.lastgood.js");
-if (!fm.fileExists(dir)) fm.createDirectory(dir, true);
 const AsyncFunction = Object.getPrototypeOf(async function(){}).constructor;
 function codeVersion(code){const m=/const VERSION\s*=\s*"([^"\n]+)"/.exec(code);return m?m[1]:"unknown";}
 function supportsRuntimeState(code){
   const m=/^(\d+)\.(\d+)/.exec(codeVersion(code));
   return !!m && (+m[1]>1 || (+m[1]===1 && +m[2]>=50));
 }
+function supportsRenderReceipt(code){
+  const m=/^(\d+)\.(\d+)/.exec(codeVersion(code));
+  return !!m && (+m[1]>1 || (+m[1]===1 && +m[2]>=75));
+}
 async function runCode(code,source){
-  globalThis.ORE_DASH_RUNTIME={loaderVersion:"1.3",codeSource:source,version:codeVersion(code)};
-  await new AsyncFunction(code)();
+  // New downloads must explicitly confirm successful rendering. Parsing alone
+  // accepts empty, comment-only and silently truncated JavaScript as valid code.
+  if(typeof code!=="string"||!code.trim()||!supportsRuntimeState(code))throw new Error("Invalid dashboard code");
+  if(source==="network"&&!supportsRenderReceipt(code))throw new Error("Dashboard update needs render receipt");
+  globalThis.ORE_DASH_RUNTIME={loaderVersion:"1.4",codeSource:source,version:codeVersion(code)};
+  const result=await new AsyncFunction(code)();
+  if(source==="network"||supportsRenderReceipt(code)){
+    if(!result||result.dashboard!=="ore-dashboard"||result.version!==codeVersion(code)||result.rendered!==true)
+      throw new Error("Dashboard did not confirm rendering");
+  }
 }
 async function showError(title,detail){
   const w=new ListWidget();w.setPadding(14,14,14,14);
@@ -37,20 +48,28 @@ try{
   const code=await req.loadString();new AsyncFunction(code);
   await runCode(code,"network");
   // Saving the cache must not roll back an already successful render.
-  try{fm.writeString(cachePath,code);}catch(_){}
+  try{
+    if(!fm.fileExists(dir))fm.createDirectory(dir,true);
+    fm.writeString(cachePath,code);
+  }catch(_){}
 }catch(error){
   console.warn("Dashboard remote load failed: "+String(error));
-  if(fm.fileExists(cachePath)){
-    const cached=fm.readString(cachePath);
-    if(supportsRuntimeState(cached)){
-      try{await runCode(cached,"lastGood");}
-      catch(_){await showError("ダッシュボード起動失敗","通信または実行に失敗しました。タップして再実行してください。");}
+  try{
+    if(fm.fileExists(cachePath)){
+      const cached=fm.readString(cachePath);
+      if(supportsRuntimeState(cached)){
+        // Existing v1.50–1.74 last-good caches predate receipts. They are usable
+        // offline, but never accepted as a new download or promoted again here.
+        await runCode(cached,"lastGood");
+      }else{
+        await showError("最新版を取得できません","保存版 v"+codeVersion(cached)+" は更新状態を表示できません。保存版は保持しています。タップして再実行してください。");
+      }
     }else{
-      // Older renderers cannot disclose fallback state. Do not show them as if current.
-      await showError("最新版を取得できません","保存版 v"+codeVersion(cached)+" は更新状態を表示できません。保存版は保持しています。タップして再実行してください。");
+      await showError("初回取得に失敗","保存版はまだありません。通信を確認し、タップして再実行してください。");
     }
-  }else{
-    await showError("初回取得に失敗","保存版はまだありません。通信を確認し、タップして再実行してください。");
+  }catch(_){
+    await showError("ダッシュボード起動失敗","保存版の読み込みまたは実行に失敗しました。通信を確認し、タップして再実行してください。");
   }
+}finally{
+  Script.complete();
 }
-Script.complete();

@@ -50,10 +50,11 @@ function fixtures(now=NOW) {
 }
 function env(opts={}) {
   const now=opts.now??NOW;
-  const record={widgets:[],published:[],presented:[],complete:0,logs:[],requests:[],writes:[],calendarWrites:0};
+  let clockNow=now;
+  const record={widgets:[],published:[],presented:[],complete:0,logs:[],requests:[],writes:[],calendarReads:[],calendarWrites:0};
   const data=opts.data === undefined ? weatherJSON(now) : opts.data;
   const events=opts.events===undefined ? fixtures(now) : opts.events;
-  class Clock extends Date { constructor(...args){super(...(args.length?args:[now]));} static now(){return now;} }
+  class Clock extends Date { constructor(...args){super(...(args.length?args:[clockNow]));} static now(){return clockNow;} }
   class Color { constructor(hex,alpha=1){this.hex=hex;this.alpha=alpha;} static dynamic(light,dark){return opts.dark?dark:light;} }
   class Size { constructor(width,height){this.width=width;this.height=height;} }
   class Rect { constructor(x,y,width,height){Object.assign(this,{x,y,width,height});} }
@@ -102,19 +103,22 @@ function env(opts={}) {
   if(opts.cache!==undefined)files.set(CACHE,opts.cache);
   const dirs=new Set();
   const fm={documentsDirectory:()=>'/documents',joinPath:(a,b)=>a+'/'+b,
-    fileExists:p=>files.has(p)||dirs.has(p),createDirectory:p=>dirs.add(p),
-    readString:p=>{if(!files.has(p))throw new Error('Missing mock file');return files.get(p);},
+    fileExists:p=>{if(opts.cacheStatError)throw new Error('Mock file metadata failure');return files.has(p)||dirs.has(p);},
+    createDirectory:p=>{if(opts.cacheDirectoryError)throw new Error('Mock directory failure');dirs.add(p);},
+    readString:p=>{if(opts.cacheReadError)throw new Error('Mock read failure');if(!files.has(p))throw new Error('Missing mock file');return files.get(p);},
     writeString:(p,s)=>{if(opts.cacheWriteError)throw new Error('Mock storage full');files.set(p,s);record.writes.push(p);}};
   const mock={Date:Clock,Color,Size,Rect,ListWidget,Font,DateFormatter,Request,DrawContext,
     Device:{screenSize:()=>({width:opts.screenWidth||393,height:852})},
     SFSymbol:{named:name=>opts.missingSymbols?.includes(name)?null:({image:{symbol:name},applyFont(){}})},
-    Location:{setAccuracyToThreeKilometers(){},current:async()=>{if(opts.locationError)throw new Error('Denied');return {latitude:35.68,longitude:139.76};},
+    Location:{setAccuracyToThreeKilometers(){},current:async()=>{if(opts.afterLocationNow!==undefined)clockNow=opts.afterLocationNow;if(opts.locationError)throw new Error('Denied');return {latitude:35.68,longitude:139.76};},
       reverseGeocode:async()=>[{locality:'テスト市'}]},
-    CalendarEvent:{today:async()=>{if(opts.todayError)throw new Error('Denied');return events.filter(e=>+e.startDate<=now && dateKey(e.endDate)>=dateKey(new Date(now)) || dateKey(e.startDate)===dateKey(new Date(now)));},
+    CalendarEvent:{today:async()=>{record.calendarReads.push({method:'today'});if(opts.todayError)throw new Error('Denied');return events.filter(e=>+e.startDate<=clockNow && dateKey(e.endDate)>=dateKey(new Date(clockNow)) || dateKey(e.startDate)===dateKey(new Date(clockNow)));},
       between:async(start,end)=>{
-        const deadlineSearch=new Date(+start).getDate()===new Date(now).getDate();
-        if(opts.calendarError||(deadlineSearch?opts.deadlineError:opts.futureError))throw new Error('Denied');
-        return events.filter(e=>+e.startDate>=+start&&+e.startDate<+end);
+        record.calendarReads.push({method:'between',start:+start,end:+end});
+        const todaySearch=+end - +start <= 25*60*60*1000;
+        const deadlineSearch=dateKey(new Date(+start))===dateKey(new Date(now));
+        if(opts.calendarError||(todaySearch?opts.todayError:deadlineSearch?opts.deadlineError:opts.futureError))throw new Error('Denied');
+        return events.filter(e=>+e.endDate>+start&&+e.startDate<+end);
       }},
     Script:{setWidget:w=>{record.published.push(w);},complete:()=>{record.complete++;}},
     FileManager:{local:()=>fm},URLScheme:{forRunningScript:()=> 'scriptable:///run/test'},
@@ -128,14 +132,14 @@ function env(opts={}) {
 }
 async function run(code=source,opts={}){
   const e=env(opts);
-  await new vm.Script('(async function(){\n'+code+'\n})()', {filename:'scriptable-under-test.js'}).runInContext(e.context,{timeout:2000});
+  e.result=await new vm.Script('(async function(){\n'+code+'\n})()', {filename:'scriptable-under-test.js'}).runInContext(e.context,{timeout:2000});
   e.widget=e.record.published.at(-1)||e.record.presented.at(-1)?.widget;
   return e;
 }
 async function funcs(code=source,opts={}){
   const prefix=code.slice(0,code.indexOf('const fetchedAt=new Date(RUN_NOW);'));
   const e=env(opts);
-  e.api=await new vm.Script('(async function(){\n'+prefix+'\nreturn {currentWeatherInfo,weatherInfo,getWeather,weatherTimestamp,forecastGrid,isInactiveTitle,isDeadlineEvent,safeSoccerTitle,calendarURL,weatherCodeOrNull,temperatureOrNull,precipitationProbabilityOrNull,precipitationAmountOrNull,coordinateOrNull};})()').runInContext(e.context);
+  e.api=await new vm.Script('(async function(){\n'+prefix+'\nreturn {currentWeatherInfo,weatherInfo,getWeather,weatherTimestamp,forecastGrid,isInactiveTitle,isDeadlineEvent,safeSoccerTitle,calendarURL,weatherCodeOrNull,temperatureOrNull,precipitationProbabilityOrNull,precipitationAmountOrNull,coordinateOrNull,cleanDeadlineTitle};})()').runInContext(e.context);
   return e;
 }
 function nodes(root,kind){return [root,...root.children.flatMap(c=>nodes(c))].filter(n=>!kind||n.kind===kind);}
@@ -328,7 +332,7 @@ async function main(){
     ['unsupported old cache',{remoteError:true,cache:'const VERSION = "1.49-github";'},false,'最新版を取得できません'],
     ['cache write failure does not discard successful render',{cacheWriteError:true,cache:'keep'},false,null]
   ];
-  for(const [label,opts,fallback,warning] of loaderScenarios)await test('Repo loader v1.3: '+label,async()=>{
+  for(const [label,opts,fallback,warning] of loaderScenarios)await test('Repo loader: '+label,async()=>{
     const r=await run(loader,opts);assert.ok(r.widget);assert.equal(r.record.complete,1);const tt=texts(r.widget);
     if(fallback)assert.ok(tt.includes('前回コード'));
     if(warning)assert.ok(tt.includes(warning));
@@ -340,6 +344,115 @@ async function main(){
     const files=new Map([[CACHE,source]]);
     const a=await run(loader,{remoteError:true,files});assert.ok(texts(a.widget).includes('前回コード'));
     const b=await run(loader,{files});assert.ok(!texts(b.widget).includes('前回コード'));assert.equal(b.context.ORE_DASH_RUNTIME.codeSource,'network');
+  });
+  // v1.75: a source badge cannot substitute for data-failure disclosure.
+  for(const screenWidth of [320,393])for(const codeSource of ['network','lastGood','unknown']){
+    for(const [failure,warning] of [
+      [{todayError:true},'今日の予定を取得できません'],
+      [{futureError:true},'明日以降の予定を取得できません'],
+      [{todayError:true,futureError:true},'予定を取得できません']
+    ])await test('Medium calendar failure independent of source '+screenWidth+' '+codeSource+' '+warning,async()=>{
+      const r=await run(source,{...failure,screenWidth,family:'medium',runtime:{codeSource}});
+      const tt=texts(r.widget);assert.ok(tt.includes(warning));
+      if(codeSource==='lastGood')assert.ok(tt.includes('前回コード'));
+      if(codeSource==='unknown')assert.ok(tt.includes('取得元不明'));
+      const limit=screenWidth===320?141:155;
+      const budget=/budget=(\d+)pt/.exec(r.record.logs.find(s=>s.includes('budget=')));
+      assert.ok(+budget[1]<=limit);
+    });
+    for(const [failure,warning] of [
+      [{weatherError:true},'天気を取得できません'],
+      [{data:(()=>{const j=weatherJSON();j.current.time='bad';return j;})()},'天気時刻不明'],
+      [{data:(()=>{const j=weatherJSON();j.current.time='2030-01-30T10:00';return j;})()},'天気データ古い']
+    ])await test('Medium weather failure independent of source '+screenWidth+' '+codeSource+' '+warning,async()=>{
+      const r=await run(source,{...failure,screenWidth,family:'medium',runtime:{codeSource}});
+      const tt=texts(r.widget);assert.ok(tt.includes(warning));
+      if(codeSource==='lastGood')assert.ok(tt.includes('前回コード'));
+      if(codeSource==='unknown')assert.ok(tt.includes('取得元不明'));
+    });
+  }
+  for(const family of ['medium','large']){
+    await test(family+': missing daily precipitation is explicit, not a placeholder percent',async()=>{
+      const j=weatherJSON();j.daily.precipitation_probability_max[0]=null;
+      const r=await run(source,{family,data:j});const tt=texts(r.widget);
+      assert.ok(tt.includes('今日降水不明'));assert.ok(!tt.some(t=>/--%|null%|NaN%/.test(t)));
+    });
+    for(const [day,visible,label] of [[29,false,null],[30,true,'今日'],[31,true,'明日']])
+      await test(family+': configured anniversary day '+day,async()=>{
+        const r=await run(source,{family,events:[],cfg:{anniversaryMonth:1,anniversaryDay:day}});
+        const tt=texts(r.widget);assert.equal(tt.includes('結婚記念日'),visible);
+        if(label)assert.ok(tt.includes(label));
+      });
+    await test(family+': configured anniversary remains available during Calendar failure',async()=>{
+      const r=await run(source,{family,events:[],calendarError:true,todayError:true,
+        runtime:{codeSource:'lastGood'},cfg:{anniversaryMonth:1,anniversaryDay:30}});
+      const tt=texts(r.widget);assert.ok(tt.includes('結婚記念日'));assert.ok(tt.includes('今日'));
+      assert.ok(tt.includes('前回コード'));
+      assert.ok(tt.includes(family==='medium'?'予定を取得できません':'一部取得失敗'));
+    });
+    await test(family+': configured anniversary and matching all-day Calendar event appear once',async()=>{
+      const event=fixtures()[0];event.title='結婚記念日';
+      const r=await run(source,{family,events:[event],cfg:{anniversaryMonth:1,anniversaryDay:30}});
+      assert.equal(texts(r.widget).filter(t=>t==='結婚記念日').length,1);
+    });
+    await test(family+': midnight during loading keeps schedule snapshot and requests refresh',async()=>{
+      const now=Date.parse('2030-01-30T23:59:59+09:00'),after=now+3000;
+      const event=fixtures()[2];event.title='Next day appointment';
+      const r=await run(source,{family,now,afterLocationNow:after,events:[event],data:weatherJSON(after)});
+      const tt=texts(r.widget);assert.equal(tt.filter(t=>t==='Next day appointment').length,1);
+      const agenda=family==='large'?texts(card(r.widget,'予定')):tt;
+      assert.ok(agenda.includes('明日'));assert.ok(!agenda.includes('今日'));
+      assert.equal(+r.widget.refreshAfterDate,after);
+      assert.equal(r.record.calendarReads.some(x=>x.method==='today'),false);
+      const todayRead=r.record.calendarReads[0];
+      assert.equal(todayRead.start,Date.parse('2030-01-30T00:00:00+09:00'));
+      assert.equal(todayRead.end,Date.parse('2030-01-31T00:00:00+09:00'));
+    });
+    for(const preview of [false,true])await test(family+': render receipt follows '+(preview?'preview':'publication'),async()=>{
+      const r=await run(source,{family,preview});
+      assert.deepEqual(plain(r.result),{dashboard:'ore-dashboard',version:'1.75-github',rendered:true});
+      assert.equal(r.record.published.length+r.record.presented.length,1);
+    });
+  }
+  for(const [input,expected] of [
+    ['11/30申込期限','11/30申込期限'],['1/30申込期限','1/30申込期限'],
+    ['11月3日申込期限','11月3日申込期限'],['1/3 申込期限','申込期限'],
+    ['放送大学 | 1月3日 提出期限','提出期限'],['課題 1/3 提出期限','課題 提出期限']
+  ])await test('Deadline cleanup preserves complete date tokens: '+input,()=>{
+    assert.equal(f.api.cleanDeadlineTitle(input,new Date('2030-01-03T00:00:00+09:00')),expected);
+  });
+  const incompleteDownloads=['','// empty download','const VERSION = "1.75-github";',
+    'const VERSION = "1.75-github"; return {rendered:true};',
+    'const VERSION = "1.75-github"; return {dashboard:"ore-dashboard",version:"1.74-github",rendered:true};',
+    'const VERSION = "1.75-github"; return {dashboard:"ore-dashboard",version:"1.75-github",rendered:false};'];
+  for(const remoteCode of incompleteDownloads)await test('Loader preserves cache on incomplete download '+JSON.stringify(remoteCode),async()=>{
+    const r=await run(loader,{remoteCode,cache:source});
+    assert.ok(texts(r.widget).includes('前回コード'));assert.equal(r.files.get(CACHE),source);
+    assert.equal(r.record.writes.length,0);assert.equal(r.record.complete,1);
+  });
+  await test('Loader rejects empty first download with an actionable widget',async()=>{
+    const r=await run(loader,{remoteCode:''});assert.ok(texts(r.widget).includes('初回取得に失敗'));
+    assert.equal(r.files.has(CACHE),false);assert.equal(r.record.complete,1);
+  });
+  await test('Loader rejects silent new-format cache without a render receipt',async()=>{
+    const r=await run(loader,{remoteError:true,cache:'const VERSION = "1.75-github";'});
+    assert.ok(texts(r.widget).includes('ダッシュボード起動失敗'));assert.equal(r.record.complete,1);
+  });
+  await test('Loader supports an already-saved legacy renderer without promoting it',async()=>{
+    const legacy='const VERSION = "1.74-github"; const w=new ListWidget(); w.addText("前回コード"); Script.setWidget(w);';
+    const r=await run(loader,{remoteError:true,cache:legacy});
+    assert.ok(texts(r.widget).includes('前回コード'));assert.equal(r.record.writes.length,0);
+    assert.equal(r.files.get(CACHE),legacy);assert.equal(r.record.complete,1);
+  });
+  for(const fault of ['cacheReadError','cacheStatError'])await test('Loader recovery handles '+fault,async()=>{
+    const r=await run(loader,{remoteError:true,cache:source,[fault]:true});
+    assert.ok(texts(r.widget).includes('ダッシュボード起動失敗'));assert.equal(r.record.complete,1);
+    assert.equal(r.files.get(CACHE),source);
+  });
+  for(const fault of ['cacheDirectoryError','cacheStatError','cacheWriteError'])await test('Storage failure does not block network render: '+fault,async()=>{
+    const r=await run(loader,{[fault]:true});
+    assert.ok(texts(r.widget).includes('Schedule today'));assert.ok(!texts(r.widget).includes('前回コード'));
+    assert.equal(r.record.published.length,1);assert.equal(r.record.complete,1);
   });
   const failed=results.filter(r=>r.status==='FAIL');
   const report={source:mainPath,mainBlob:gitHash(source),loaderBlob:gitHash(loader),environment:process.version,

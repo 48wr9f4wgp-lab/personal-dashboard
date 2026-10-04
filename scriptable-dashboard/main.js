@@ -1,8 +1,8 @@
-// 俺専用ダッシュボード v1.74-github
+// 俺専用ダッシュボード v1.75-github
 // Remote main for Scriptable loader.
 // IMPORTANT: Script.complete() は loader 側で呼ぶ。
 
-const VERSION = "1.74-github";
+const VERSION = "1.75-github";
 
 const USER = globalThis.ORE_DASH_CONFIG || {};
 const RUN_NOW = new Date();
@@ -99,6 +99,21 @@ function weatherFailureText(weather){
   if(weather.timeUnverified)return "天気時刻不明";
   return "天気を取得できません";
 }
+function dailyRainLabel(weather){
+  const rain=precipitationProbabilityOrNull(weather.rain);
+  return rain===null?"今日降水不明":"今日降水"+Math.round(rain)+"%";
+}
+function scheduleFailureText(events,future){
+  if(!events.ok&&!future.ok)return "予定を取得できません";
+  if(!events.ok)return "今日の予定を取得できません";
+  if(!future.ok)return "明日以降の予定を取得できません";
+  return "";
+}
+function renderReceipt(){
+  // Loader v1.4 only saves code after the widget or preview was actually produced.
+  // Older installed loaders can keep running this main without modification.
+  return {dashboard:"ore-dashboard",version:VERSION,rendered:true};
+}
 async function getWeather(pos){
   const missing={ok:false,partial:true,stale:false,timeUnverified:false,
     temp:null,code:-1,isDay:null,currentPrecip:null,currentRain:null,currentShowers:null,currentSnowfall:null,
@@ -161,7 +176,9 @@ function weatherInfo(code){
 async function getEvents(){
   try{
     const now=new Date(RUN_NOW);
-    const list=await CalendarEvent.today();
+    // Use the same calendar-day snapshot as the header and upcoming query.
+    // A slow location request can cross midnight before this read starts.
+    const list=await CalendarEvent.between(dayStart(now),addDays(dayStart(now),1));
     const seen=new Set();
 
     const all=list
@@ -196,10 +213,10 @@ function cleanDeadlineTitle(title,date){
   if(date){
     const m=date.getMonth()+1,d=date.getDate();
     const patterns=[
-      new RegExp(m+"\\/"+d+"\\s*"),
-      new RegExp(m+"月"+d+"日\\s*")
+      new RegExp("(^|[^0-9])"+m+"\\/"+d+"(?![0-9])\\s*"),
+      new RegExp("(^|[^0-9])"+m+"月"+d+"日\\s*")
     ];
-    for(const p of patterns) v=v.replace(p,"");
+    for(const p of patterns) v=v.replace(p,"$1");
   }
   return normalize(v)||"重要期限";
 }
@@ -384,11 +401,12 @@ async function getUpcomingNext(ann){
     }
   }catch(_){calendarOK=false;}
 
-  if(ann && ann.date>=start && ann.date<end){
+  if(ann && ann.date>=dayStart(now) && ann.date<end){
     out.push({
       title:"結婚記念日",
       date:ann.date,
       allDay:true,
+      today:sameCalendarDay(ann.date,now),
       source:"家族",
       kind:"予定",
       color:C.orange
@@ -596,8 +614,11 @@ function forecastGrid(weather,now=RUN_NOW){
   });
 }
 function nextRefresh(){
+  const now=new Date();
+  // refreshAfterDate is a request to iOS, not a guaranteed execution time.
+  if(!sameCalendarDay(RUN_NOW,now))return now;
   const minutes=numberOrNull(CFG.refreshMinutes);
-  return new Date(Math.min(Date.now()+Math.max(1,minutes===null?15:minutes)*60000,addDays(dayStart(new Date()),1).getTime()));
+  return new Date(Math.min(now.getTime()+Math.max(1,minutes===null?15:minutes)*60000,addDays(dayStart(now),1).getTime()));
 }
 
 // A conservative 155pt content budget; 141pt compact mode omits only the redundant heading.
@@ -655,9 +676,12 @@ const todaySchedule=eventsData.items.map(e=>{
 });
 
 const allScheduleRows=[
+  ...upcoming7.filter(it=>it.today),
   ...todaySchedule,
-  ...upcoming7
-];
+  ...upcoming7.filter(it=>!it.today)
+].filter((item,index,items)=>items.findIndex(other=>
+  normalize(other.title).toLowerCase()===normalize(item.title).toLowerCase()&&
+  other.date.getTime()===item.date.getTime()&&other.allDay===item.allDay)===index);
 
 // Home screen policy: show the next six things, not the size of the backlog.
 const scheduleRows=allScheduleRows.slice(0,6);
@@ -672,7 +696,7 @@ const shownDeadlines=actionableDeadlines.slice(0,CFG.deadlineMaxItems);
 
 const [weatherName,weatherIcon,weatherDisplayCode,weatherDisplayReason]=currentWeatherInfo(W);
 
-// MEDIUM v1.74: calendar first; explicit source warning and no fake forecast placeholders.
+// MEDIUM v1.75: keep data failures visible independently of code fallback.
 if(resolveFamily()==="medium"){
   const M=mediumMetrics();
   const runtime=globalThis.ORE_DASH_RUNTIME||{};
@@ -686,8 +710,11 @@ if(resolveFamily()==="medium"){
   const dataLabel=dataIssues.length>1?"一部未取得":(dataIssues[0]||"");
   const mediumDeadline=actionableDeadlines[0]||null;
   const footerNeeded=!!mediumDeadline||!deadlineData.ok;
-  const mediumRows=scheduleRows.slice(0,footerNeeded?4:5);
-  const rowCount=Math.max(1,mediumRows.length);
+  const scheduleWarning=scheduleFailureText(eventsData,upcomingData);
+  // A failed Calendar read uses one existing row, rather than growing the widget
+  // or hiding the failure behind a last-good-code badge.
+  const mediumRows=scheduleRows.slice(0,(footerNeeded?4:5)-(scheduleWarning?1:0));
+  const rowCount=Math.max(1,mediumRows.length+(scheduleWarning?1:0));
   const bodyHeight=M.cardPad*2+M.heading+M.headingGap+rowCount*M.row+(footerNeeded?M.divider+M.row:0);
   const budget=M.top+M.header+M.gap+bodyHeight+M.bottom;
   if(M.divider!==3)throw new Error("Medium divider geometry mismatch");
@@ -716,7 +743,7 @@ if(resolveFamily()==="medium"){
   }else if(mediumWeatherUsable){
     singleText(current,numberLabel(W.temp)+"°",Font.semiboldSystemFont(11),C.text);current.addSpacer(4);
     icon(current,weatherIcon,C.sub,11);current.addSpacer(4);
-    singleText(current,"今日降水"+numberLabel(W.rain)+"%",Font.mediumSystemFont(9),C.sub);
+    singleText(current,dailyRainLabel(W),Font.mediumSystemFont(9),W.rain===null?C.orange:C.sub);
   }else{
     singleText(current,weatherFailureText(W),Font.mediumSystemFont(10),C.orange);
   }
@@ -738,6 +765,16 @@ if(resolveFamily()==="medium"){
       });
       if(i<2)forecasts.addSpacer(4);
     });
+  }else{
+    // Forecast space remains useful when no trustworthy forecast is available.
+    // This also keeps weather errors visible in compact mode with a code warning.
+    const forecastStatus=forecasts.addStack();forecastStatus.layoutVertically();
+    forecastStatus.size=new Size(M.forecastWidth,M.header);
+    forecastStatus.addSpacer();
+    const warning=forecastStatus.addText(mediumWeatherUsable?"予報一部未取得":weatherFailureText(W));
+    warning.font=Font.mediumSystemFont(10);warning.textColor=C.orange;
+    warning.lineLimit=2;warning.minimumScaleFactor=1;
+    forecastStatus.addSpacer();
   }
   root.addSpacer(M.gap);
 
@@ -791,7 +828,11 @@ if(resolveFamily()==="medium"){
     textBox.addSpacer();
   }
 
-  if(!mediumRows.length){
+  if(scheduleWarning){
+    const failed=fixedRow(card,contentWidth,M.row);
+    singleText(failed,scheduleWarning,Font.mediumSystemFont(11),C.orange);failed.addSpacer();
+  }
+  if(!mediumRows.length&&!scheduleWarning){
     const empty=fixedRow(card,contentWidth,M.row);
     const failed=!eventsData.ok||!upcomingData.ok;
     singleText(empty,failed?"予定を取得できません":"直近の予定なし",Font.mediumSystemFont(11),failed?C.orange:C.sub);empty.addSpacer();
@@ -818,7 +859,7 @@ if(resolveFamily()==="medium"){
   mw.refreshAfterDate=nextRefresh();
   console.log("[dashboard] "+VERSION+" medium; budget="+budget+"pt; loader="+(runtime.codeSource||"unknown")+"; "+state.issues.join(","));
   if(config.runsInWidget)Script.setWidget(mw);else await mw.presentMedium();
-  return;
+  return renderReceipt();
 }
 
 // LARGE v1.73: preserve weather codes; disclose fallback independently of weather availability.
@@ -1057,7 +1098,7 @@ if(largeWeatherUsable){
 
   // Daily precipitation probability belongs with the daily forecast, not current conditions.
   const rainKnown=numberOrNull(W.rain)!==null&&W.rain>=0&&W.rain<=100;
-  singleText(wh,rainKnown?"今日降水"+numberLabel(W.rain)+"%":"今日降水不明",Font.mediumSystemFont(9),rainKnown?C.sub:C.orange);
+  singleText(wh,dailyRainLabel(W),Font.mediumSystemFont(9),rainKnown?C.sub:C.orange);
 
   if(!weekComplete){
     wh.addSpacer(6);
@@ -1111,3 +1152,4 @@ console.log("[weather] source=open-meteo-best-match cell=nearest city="+position
   " showers="+String(W.currentShowers)+" snow="+String(W.currentSnowfall));
 console.log("[dashboard] "+VERSION+" large; loader="+(runtime.codeSource||"unknown")+"; "+largeState.issues.join(","));
 if(config.runsInWidget) Script.setWidget(w); else await w.presentLarge();
+return renderReceipt();
