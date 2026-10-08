@@ -15,16 +15,20 @@ Remote main:
 
 ## Current candidate
 
-- Dashboard: `1.76-github`
+- Dashboard: `1.77-github`
 - Loader: `1.4`
 - Target layouts: Medium (calendar first) and Large (weather overview)
 - Preserve local `ORE_DASH_CONFIG` when updating the loader. Do not copy personal settings into this repository.
 
-### Large header v1.76
-- Date uses a 31pt day number with explicit month and weekday, rather than a compressed one-line date.
-- Current weather has a 19pt headline and 25pt condition icon; temperature remains readable beneath.
-- Existing event, deadline, weekly forecast, Medium, weather validation, and loader behavior remain unchanged.
-- iPhone Light/Dark screenshots are required before calling the new visual layout device-verified.
+### Large v1.77: two-card overview
+- Natural month/day headline and full weekday, with the city and model timestamp retained.
+- Weather name and icon stay prominent; temperature is supporting information beneath.
+- One agenda card contains up to two deadlines first, then six schedule entries. A second card holds six forecast days.
+- Deadline dates are absolute (with weekday); the right side shows today/tomorrow/countdown once, never two identical relative labels.
+- Schedule weight follows timing, not sport. Known K-1 WGP abbreviations retain year, class and status. Large no longer cuts titles at 28 characters before native layout.
+- Weekly temperatures use 10pt type. Long deadline titles still allow two lines.
+- The 354pt maximum content budget is a design estimate, not proof of native iOS text fit. Test two long deadlines, six schedules and Light/Dark on iPhone before visual sign-off.
+- Medium, data fetching/validation, Calendar selection, loader and local configuration are unchanged.
 
 ### Reliability changes
 

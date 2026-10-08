@@ -296,13 +296,13 @@ async function main(){
       const all=nodes(r.widget,'text');
       const d=new Date(now);
       const find=(value,size)=>all.find(n=>n.text===value&&n.font?.size===size);
-      assert.ok(find(String(d.getDate()),31),'day number not 31pt');
-      assert.ok(find((d.getMonth()+1)+'月',11),'month missing');
+      assert.ok(find((d.getMonth()+1)+'月'+d.getDate()+'日',20),'natural date missing');
+      assert.ok(!all.some(n=>n.font?.size===31),'oversized detached day still present');
       assert.ok(find(['日','月','火','水','木','金','土'][d.getDay()]+'曜日',14),'weekday not 14pt');
-      assert.ok(find('くもり',19),'weather condition not 19pt');
-      assert.ok(find('22°',24),'temperature missing');
+      assert.ok(find('くもり',20),'weather condition not prominent');
+      assert.ok(find('22°',22),'temperature missing');
       assert.ok(nodes(r.widget,'image').some(n=>n.image?.symbol==='cloud.fill'&&n.imageSize?.width===25),'25pt weather hero icon missing');
-      assert.ok(nodes(r.widget,'stack').some(n=>n.size?.width===329&&n.size?.height===64),'64pt header not found');
+      assert.ok(nodes(r.widget,'stack').some(n=>n.size?.width===329&&n.size?.height===54),'54pt header not found');
       assert.ok(card(r.widget,'予定'));assert.ok(card(r.widget,'重要期限'));assert.ok(card(r.widget,'週間天気'));
     });
   }
@@ -480,6 +480,75 @@ async function main(){
     const r=await run(loader,{[fault]:true});
     assert.ok(texts(r.widget).includes('Schedule today'));assert.ok(!texts(r.widget).includes('前回コード'));
     assert.equal(r.record.published.length,1);assert.equal(r.record.complete,1);
+  });
+  for(const dark of [false,true]){
+    await test('v177 two backgrounds with deadlines before schedules '+dark,async()=>{
+      const r=await run(source,{dark});
+      const cards=nodes(r.widget,'stack').filter(n=>n.backgroundColor?.hex===(dark?'#1C1C1E':'#FFFFFF'));
+      assert.equal(cards.length,2,'expected agenda + forecast backgrounds only');
+      const agenda=cards[0],deadline=card(r.widget,'重要期限'),schedule=card(r.widget,'予定');
+      assert.ok(agenda.children.includes(deadline));assert.ok(agenda.children.includes(schedule));
+      assert.ok(agenda.children.indexOf(deadline)<agenda.children.indexOf(schedule));
+      assert.ok(r.record.logs.some(s=>s.includes('budgetMax=354pt')));
+    });
+    for(const offset of [0,1,5])await test('v177 deadline absolute date / countdown '+dark+' '+offset,async()=>{
+      const events=fixtures(),target=events.find(e=>e.title==='テスト提出期限A');
+      const start=new Date(NOW);start.setHours(0,0,0,0);start.setDate(start.getDate()+offset);
+      target.startDate=start;target.endDate=new Date(+start+86400000);
+      const r=await run(source,{dark,events}),tt=texts(card(r.widget,'重要期限'));
+      const label=(start.getMonth()+1)+'/'+start.getDate()+'（'+['日','月','火','水','木','金','土'][start.getDay()]+'）';
+      assert.ok(tt.includes(label));assert.ok(!tt.includes('今日'));assert.ok(!tt.includes('明日'));
+      if(offset<=1)assert.equal(tt.filter(t=>t===(offset===0?'今日締切':'明日締切')).length,1);
+      else assert.ok(tt.includes('あと5日'));
+    });
+    await test('v177 long two-line deadlines and six schedules survive '+dark,async()=>{
+      const events=fixtures();
+      for(const e of events)if(/テスト.*期限/.test(e.title))e.title+=' '+('長文の期限タイトル・条件確認 '.repeat(12));
+      const r=await run(source,{dark,events}),dd=nodes(card(r.widget,'重要期限'),'text').filter(n=>n.text.includes('長文の期限タイトル'));
+      assert.equal(dd.length,2);assert.ok(dd.every(n=>n.lineLimit===2&&n.minimumScaleFactor===1));
+      assert.ok(dd.every(n=>n.text.length>100));
+      assert.equal(texts(card(r.widget,'予定')).filter(t=>/^Schedule |^UFC |^PRIME /.test(t)).length,6);
+      assert.equal(nodes(card(r.widget,'週間天気'),'image').length,6);
+    });
+    await test('v177 schedule category does not determine font weight '+dark,async()=>{
+      const r=await run(source,{dark}),tt=nodes(card(r.widget,'予定'),'text');
+      assert.equal(tt.find(n=>n.text==='Schedule one').font.name,'mediumSystemFont');
+      assert.equal(tt.find(n=>n.text==='UFC 999 test').font.name,'mediumSystemFont');
+      assert.equal(tt.find(n=>n.text==='Schedule today').font.name,'semiboldSystemFont');
+    });
+    await test('v177 K-1 title keeps status year class and unknown suffix '+dark,async()=>{
+      const e=fixtures()[2];e.title='K-1 WORLD GP 2027 -90kg ルール説明（延期） | 未知の補足';
+      const original=e.title;
+      const r=await run(source,{dark,events:[e]}),tt=texts(card(r.widget,'予定'));
+      const title=tt.find(t=>t.includes('K-1 WGP'));
+      assert.ok(title.startsWith('【延期】'));assert.ok(title.includes('2027'));assert.ok(title.includes('-90kg'));
+      assert.ok(title.includes('未知の補足'));assert.equal(e.title,original);
+    });
+    await test('v177 weekly high-low type improved without changing six days '+dark,async()=>{
+      const r=await run(source,{dark}),ww=card(r.widget,'週間天気');
+      const numerical=nodes(ww,'text').filter(n=>/^\d+$/.test(n.text));
+      assert.equal(numerical.length,12);assert.ok(numerical.every(n=>n.font.size===10));
+    });
+    for(const sourceState of ['network','lastGood','unknown'])await test('v177 warnings survive combined agenda '+dark+' '+sourceState,async()=>{
+      const r=await run(source,{dark,weatherError:true,todayError:true,futureError:true,deadlineError:true,runtime:{codeSource:sourceState}});
+      const tt=texts(r.widget);assert.ok(tt.includes('天気を取得できません'));assert.ok(tt.includes('一部取得失敗'));assert.ok(tt.includes('取得失敗'));
+      if(sourceState==='lastGood')assert.ok(tt.includes('前回コード'));
+      if(sourceState==='unknown')assert.ok(tt.includes('取得元不明'));
+      assert.equal(nodes(r.widget,'stack').filter(n=>n.backgroundColor?.hex===(dark?'#1C1C1E':'#FFFFFF')).length,1);
+    });
+  }
+
+  await test('v177 protected data and Medium prefix unchanged from v176',()=>{
+    const prefix=source.slice(0,source.indexOf('// LARGE')).replace(/1\.(76|77)-github/g,'VERSION');
+    assert.equal(crypto.createHash('sha256').update(prefix).digest('hex'),'9c51a69d049d1c68f8a6dda4e9e0d0637f934e347cc239331e0f5ea9fc72de12');
+  });
+  for(const count of [0,1,2])await test('v177 deadline count '+count+' keeps all six appointments',async()=>{
+    const items=fixtures();let seen=0;
+    const events=items.filter(e=>!/テスト.*期限/.test(e.title)||seen++<count);
+    const r=await run(source,{events});
+    const a=texts(card(r.widget,'予定'));
+    assert.equal(a.filter(t=>/^Schedule |^UFC |^PRIME /.test(t)).length,6);
+    assert.equal(texts(card(r.widget,'重要期限')).filter(t=>/テスト.*期限/.test(t)).length,count);
   });
   const failed=results.filter(r=>r.status==='FAIL');
   const report={source:mainPath,mainBlob:gitHash(source),loaderBlob:gitHash(loader),environment:process.version,

@@ -1,8 +1,8 @@
-// 俺専用ダッシュボード v1.76-github
+// 俺専用ダッシュボード v1.77-github
 // Remote main for Scriptable loader.
 // IMPORTANT: Script.complete() は loader 側で呼ぶ。
 
-const VERSION = "1.76-github";
+const VERSION = "1.77-github";
 
 const USER = globalThis.ORE_DASH_CONFIG || {};
 const RUN_NOW = new Date();
@@ -862,310 +862,150 @@ if(resolveFamily()==="medium"){
   return renderReceipt();
 }
 
-// LARGE v1.76: readable date and weekday + weather-first hero header.
-// Same data/design language as Medium, but uses the extra area for broader context.
-const L={width:329,dayWidth:38,timeWidth:44,iconWidth:14,columnGap:3};
+// LARGE v1.77: one deadline-first agenda card and one six-day forecast card.
+// No changes to data selection, permissions, weather semantics or Medium.
+const L={width:329,dayWidth:36,timeWidth:35,iconWidth:12,columnGap:3,header:54,row:15,deadlineMeta:14,deadlineTitleMax:28,deadlineGap:4,agendaHeading:16,cardPad:6,gap:4,weekHeight:68};
 const runtime=globalThis.ORE_DASH_RUNTIME||{};
 const largeState=mediumState(eventsData,upcomingData,deadlineData,W,position,runtime);
 const largeDeadlines=actionableDeadlines.slice(0,2);
-
-// Large-only semantic tint: color supplements the icon shape, so weather can be scanned at a glance.
+const largeWeatherUsable=W.ok&&!W.stale&&!W.timeUnverified;
+// Use breathing room when fewer deadlines exist; the two-long-deadline budget stays bounded.
+const agendaRowHeight=largeDeadlines.length<2?18:L.row;
+// Design budget, not a measurement of native iOS font shaping or the live widget frame.
+const largeAgendaMax=L.cardPad*2+2*(L.deadlineMeta+1+L.deadlineTitleMax)+L.deadlineGap+L.agendaHeading+6*L.row;
+const largeBudget=16+L.header+2*L.gap+largeAgendaMax+L.weekHeight;
 function largeWeatherTint(code,isDay=null){
-  if(code===0 || code===1 || code===2){
-    return isDay===false ? C.purple : C.orange;
-  }
-  if(code===3 || code===45 || code===48) return C.gray;
-  if([51,53,55,56,57,61,63,65,66,67,80,81,82].includes(code)) return C.blue;
-  if([71,73,75,77,85,86].includes(code)){
-    return Color.dynamic(new Color("#32ADE6"),new Color("#64D2FF"));
-  }
-  if([95,96,99].includes(code)) return C.purple;
+  if(code===0||code===1||code===2)return isDay===false?C.purple:C.orange;
+  if(code===3||code===45||code===48)return C.gray;
+  if([51,53,55,56,57,61,63,65,66,67,80,81,82].includes(code))return C.blue;
+  if([71,73,75,77,85,86].includes(code))return Color.dynamic(new Color("#32ADE6"),new Color("#64D2FF"));
+  if([95,96,99].includes(code))return C.purple;
   return C.gray;
 }
-
-const w=new ListWidget();
-w.setPadding(8,14,8,14);
-w.backgroundColor=C.bg;
-w.url=calendarURL();
-
-// OVERVIEW HEADER
-const header=w.addStack();header.layoutVertically();header.size=new Size(L.width,0);
-
-// Large header: primary date + weekday, with the weather condition as the right-side hero.
-// Two contained columns; retain the current weather semantics and show its model timestamp.
-const headerLeftWidth=112;
-const headerGap=12;
-const headerRightWidth=L.width-headerLeftWidth-headerGap;
-const headerHeight=64;
-const largeWeatherUsable=W.ok&&!W.stale&&!W.timeUnverified;
-
-const headerGrid=header.addStack();
-headerGrid.size=new Size(L.width,headerHeight);
-headerGrid.topAlignContent();
-
-// Date first: large day number, then an unmistakable month and weekday.
-const identity=headerGrid.addStack();
-identity.layoutVertically();
-identity.size=new Size(headerLeftWidth,headerHeight);
-
-const dateLine=fixedRow(identity,headerLeftWidth,38);
-singleText(dateLine,String(RUN_NOW.getDate()),Font.boldSystemFont(31),C.text);
-dateLine.addSpacer(5);
-
-const dateMeta=dateLine.addStack();
-dateMeta.layoutVertically();
-dateMeta.size=new Size(65,36);
-
-let t=dateMeta.addText((RUN_NOW.getMonth()+1)+"月");
-t.font=Font.mediumSystemFont(11);t.textColor=C.sub;t.lineLimit=1;
-dateMeta.addSpacer(1);
-
-t=dateMeta.addText(["日","月","火","水","木","金","土"][RUN_NOW.getDay()]+"曜日");
-t.font=Font.boldSystemFont(14);t.textColor=C.text;t.lineLimit=1;
-dateLine.addSpacer();
-
-identity.addSpacer(1);
-
-const placeLine=fixedRow(identity,headerLeftWidth,11);
-t=singleText(placeLine,(position.ok?"":"予備 ")+position.city,Font.mediumSystemFont(10),C.sub);
-t.minimumScaleFactor=0.85;
-placeLine.addSpacer();
-
-// Show the time of the model estimate; don't conflate it with device clock time.
+function largeDeadlineDate(date){return fmtDate(date)+"（"+["日","月","火","水","木","金","土"][date.getDay()]+"）";}
+function largeDeadlineCountdown(date){const days=daysBetween(RUN_NOW,date);return days===0?"今日締切":days===1?"明日締切":relativeDay(date);}
+function largeAgendaTitle(item){
+  let title=stripLeadingSportEmoji(item.title).replace(/[\uFE0E\uFE0F\uFFFD]/g,"").trim();
+  // Preserve years, classes, unknown suffixes and status tags. No character-count cut.
+  if(item.soccer||item.combat)title=safeSoccerTitle(title);
+  if(item.combat)title=title.replace(/\bK[- ]?1\s+WORLD\s+(?:GRAND\s+PRIX|GP)\b/gi,"K-1 WGP");
+  return title;
+}
+const w=new ListWidget();w.setPadding(8,14,8,14);w.backgroundColor=C.bg;w.url=calendarURL();
+// HEADER: whole date in natural order, with the weather as the right-side headline.
+const header=fixedRow(w,L.width,L.header);header.topAlignContent();
+const identityWidth=134,headerGap=12,weatherWidth=L.width-identityWidth-headerGap;
+const identity=header.addStack();identity.layoutVertically();identity.size=new Size(identityWidth,L.header);
+const dateLine=fixedRow(identity,identityWidth,24);
+let t=singleText(dateLine,(RUN_NOW.getMonth()+1)+"月"+RUN_NOW.getDate()+"日",Font.semiboldSystemFont(20),C.text);
+t.minimumScaleFactor=0.95;dateLine.addSpacer();
+const placeLine=fixedRow(identity,identityWidth,17);
+singleText(placeLine,["日","月","火","水","木","金","土"][RUN_NOW.getDay()]+"曜日",Font.semiboldSystemFont(14),C.text);
+placeLine.addSpacer(7);
+const cityBox=fixedRow(placeLine,identityWidth-49,17);
+t=singleText(cityBox,(position.ok?"":"予備 ")+position.city,Font.mediumSystemFont(9),C.sub);t.minimumScaleFactor=0.85;cityBox.addSpacer();
 if(largeWeatherUsable){
-  identity.addSpacer(1);
-  const asOfLine=fixedRow(identity,headerLeftWidth,12);
-  const asOf=weatherAsOfLabel(W);
-  singleText(asOfLine,asOf?"天気 "+asOf:"天気 時刻不明",Font.mediumSystemFont(9),asOf?C.sub:C.orange);
-  asOfLine.addSpacer();
+  const asOfLine=fixedRow(identity,identityWidth,13),asOf=weatherAsOfLabel(W);
+  singleText(asOfLine,asOf?"天気 "+asOf:"天気 時刻不明",Font.mediumSystemFont(9),asOf?C.sub:C.orange);asOfLine.addSpacer();
 }
-
-headerGrid.addSpacer(headerGap);
-
-// Weather first: larger condition name and icon, with temperature and highs/lows below.
-const weatherPane=headerGrid.addStack();
-weatherPane.layoutVertically();
-weatherPane.size=new Size(headerRightWidth,headerHeight);
-
+header.addSpacer(headerGap);
+const weatherPane=header.addStack();weatherPane.layoutVertically();weatherPane.size=new Size(weatherWidth,L.header);
 if(largeWeatherUsable){
-  const conditionLine=fixedRow(weatherPane,headerRightWidth,32);
-  conditionLine.addSpacer();
-  t=singleText(conditionLine,weatherName,Font.boldSystemFont(19),C.text);
-  t.minimumScaleFactor=0.9;
-  conditionLine.addSpacer(7);
-  icon(conditionLine,weatherIcon,largeWeatherTint(weatherDisplayCode,W.isDay),25);
-
-  const temperatureLine=fixedRow(weatherPane,headerRightWidth,32);
-  temperatureLine.addSpacer();
-  singleText(temperatureLine,numberLabel(W.temp)+"°",Font.boldSystemFont(24),C.text);
-  temperatureLine.addSpacer(9);
-  t=singleText(temperatureLine,"↑"+numberLabel(W.max)+"°  ↓"+numberLabel(W.min)+"°",Font.mediumSystemFont(11),C.sub);
-  t.minimumScaleFactor=0.9;
+  const conditionLine=fixedRow(weatherPane,weatherWidth,27);conditionLine.addSpacer();
+  t=singleText(conditionLine,weatherName,Font.boldSystemFont(20),C.text);t.minimumScaleFactor=0.9;
+  conditionLine.addSpacer(7);icon(conditionLine,weatherIcon,largeWeatherTint(weatherDisplayCode,W.isDay),25);
+  const temperatureLine=fixedRow(weatherPane,weatherWidth,27);temperatureLine.addSpacer();
+  singleText(temperatureLine,numberLabel(W.temp)+"°",Font.semiboldSystemFont(22),C.text);temperatureLine.addSpacer(8);
+  t=singleText(temperatureLine,"↑"+numberLabel(W.max)+"°  ↓"+numberLabel(W.min)+"°",Font.mediumSystemFont(11),C.sub);t.minimumScaleFactor=0.9;
 }else{
-  const weatherError=fixedRow(weatherPane,headerRightWidth,32);
-  weatherError.addSpacer();
-  t=singleText(weatherError,weatherFailureText(W),Font.semiboldSystemFont(10),C.orange);
-  t.minimumScaleFactor=0.9;
+  const errorLine=fixedRow(weatherPane,weatherWidth,27);errorLine.addSpacer();
+  t=singleText(errorLine,weatherFailureText(W),Font.semiboldSystemFont(10),C.orange);t.minimumScaleFactor=0.9;
 }
-
-w.addSpacer(4);
-
-// SCHEDULE: six-row overview, using the same when | time | icon | content grammar as Medium.
-const scheduleCard=mkCard(w);
-scheduleCard.size=new Size(L.width,0);
-scheduleCard.setPadding(6,12,6,12);
-
-const sh=scheduleCard.addStack();sh.centerAlignContent();
-let sht=sh.addText("予定");
-sht.font=Font.boldSystemFont(13);
-sht.textColor=C.text;
-sh.addSpacer();
-
-const schedulePartial=!eventsData.ok||!upcomingData.ok;
-// Keep the code-source warning outside the weather branch: even a failed weather request
-// must not hide fallback. Missing runtime metadata is unknown, never proof of a network load.
-const codeSourceWarning=runtime.codeSource==="lastGood"?"前回コード":runtime.codeSource==="network"?"":"取得元不明";
-if(codeSourceWarning){
-  singleText(sh,codeSourceWarning,Font.semiboldSystemFont(9),C.orange);
-  if(schedulePartial)sh.addSpacer(6);
-}
-if(schedulePartial){
-  const st=sh.addText("一部取得失敗");
-  st.font=Font.systemFont(8);st.textColor=C.orange;
-}
-scheduleCard.addSpacer(4);
-
-if(!scheduleRows.length){
-  const empty=scheduleCard.addText(schedulePartial?"予定を取得できません":"直近の予定なし");
-  empty.font=Font.mediumSystemFont(11);
-  empty.textColor=schedulePartial?C.orange:C.sub;
-}else{
-  scheduleRows.forEach((it,i)=>{
-    const line=scheduleCard.addStack();line.centerAlignContent();
-    const repeatDay=i>0&&sameCalendarDay(scheduleRows[i-1].date,it.date);
-
-    const dayBox=line.addStack();dayBox.size=new Size(L.dayWidth,0);
-    let day=dayBox.addText(repeatDay?"":(it.today?"今日":timelineDay(it.date)));
-    day.font=Font.semiboldSystemFont(11);
-    day.textColor=it.today?C.blue:C.text;
-    day.lineLimit=1;
-
-    line.addSpacer(L.columnGap);
-
-    const timeBox=line.addStack();timeBox.size=new Size(L.timeWidth,0);
-    let time=timeBox.addText(fmtTime(it.date,it.allDay));
-    time.font=Font.semiboldSystemFont(10);
-    time.textColor=it.today?C.blue:C.sub;
-    time.lineLimit=1;
-
-    line.addSpacer(L.columnGap);
-
-    const iconBox=line.addStack();iconBox.size=new Size(L.iconWidth,0);iconBox.centerAlignContent();
-    if(it.combat) combatIcon(iconBox,it,12);
-    else icon(iconBox,futureIconName(it),C.sub,10);
-
-    line.addSpacer(L.columnGap);
-
-    let title=line.addText(compactUpcomingTitle(it));
-    title.font=(it.combat||it.soccer)?Font.semiboldSystemFont(12):Font.mediumSystemFont(12);
-    title.textColor=C.text;
-    title.lineLimit=1;
-
-    if(i<scheduleRows.length-1){
-      const next=scheduleRows[i+1];
-      scheduleCard.addSpacer(next&&!sameCalendarDay(it.date,next.date)?5:2);
+w.addSpacer(L.gap);
+// AGENDA: only the common parent has a background; sub-sections are transparent.
+const agendaCard=mkCard(w);agendaCard.size=new Size(L.width,0);agendaCard.setPadding(L.cardPad,12,L.cardPad,12);agendaCard.url=calendarURL();
+const contentWidth=L.width-24;
+const deadlineCard=agendaCard.addStack();deadlineCard.layoutVertically();deadlineCard.size=new Size(contentWidth,0);
+if(deadlineData.ok&&largeDeadlines.length){
+  largeDeadlines.forEach((item,index)=>{
+    const urgency=deadlineColor(item.date),meta=fixedRow(deadlineCard,contentWidth,L.deadlineMeta);
+    singleText(meta,largeDeadlineDate(item.date),Font.semiboldSystemFont(11),urgency);
+    if(index===0){
+      meta.addSpacer(6);singleText(meta,"重要期限",Font.mediumSystemFont(9),C.sub);
+      if(actionableDeadlines.length>largeDeadlines.length){meta.addSpacer(4);singleText(meta,"直近2件",Font.mediumSystemFont(8),C.sub);}
     }
+    meta.addSpacer();singleText(meta,largeDeadlineCountdown(item.date),Font.semiboldSystemFont(10),urgency);
+    deadlineCard.addSpacer(1);
+    const titleBox=deadlineCard.addStack();titleBox.size=new Size(contentWidth,0);
+    t=titleBox.addText(item.title);t.font=Font.mediumSystemFont(11);t.textColor=C.text;t.lineLimit=2;t.minimumScaleFactor=1;
+    if(index<largeDeadlines.length-1)deadlineCard.addSpacer(L.deadlineGap);
   });
-}
-
-w.addSpacer(4);
-
-// DEADLINES: Large intentionally shows two. More belongs in Calendar, not on the home screen.
-const deadlineCard=mkCard(w);
-deadlineCard.size=new Size(L.width,0);
-deadlineCard.setPadding(7,12,7,12);
-
-const dh=deadlineCard.addStack();dh.centerAlignContent();
-let dht=dh.addText("重要期限");
-dht.font=Font.boldSystemFont(13);
-dht.textColor=C.text;
-dh.addSpacer();
-
-if(deadlineData.ok&&actionableDeadlines.length>largeDeadlines.length){
-  const more=dh.addText("直近2件");
-  more.font=Font.systemFont(8);more.textColor=C.gray;
-}
-deadlineCard.addSpacer(5);
-
-if(!deadlineData.ok){
-  t=deadlineCard.addText("取得失敗");
-  t.font=Font.mediumSystemFont(11);t.textColor=C.orange;
-}else if(!largeDeadlines.length){
-  t=deadlineCard.addText("30日以内の重要期限なし");
-  t.font=Font.mediumSystemFont(11);t.textColor=C.sub;
 }else{
-  largeDeadlines.forEach((it,i)=>{
-    const urgency=deadlineColor(it.date);
-
-    const meta=deadlineCard.addStack();meta.centerAlignContent();
-
-    let dot=meta.addText("●");
-    dot.font=Font.systemFont(9);dot.textColor=urgency;
-    meta.addSpacer(6);
-
-    let date=meta.addText(timelineDay(it.date));
-    date.font=Font.boldSystemFont(11);date.textColor=urgency;
-
-    meta.addSpacer();
-
-    let rel=meta.addText(relativeDay(it.date));
-    rel.font=Font.boldSystemFont(10);rel.textColor=urgency;
-
-    deadlineCard.addSpacer(2);
-
-    let title=deadlineCard.addText(it.title);
-    title.font=Font.mediumSystemFont(11);
-    title.textColor=C.text;
-    title.lineLimit=2;
-
-    if(i<largeDeadlines.length-1) deadlineCard.addSpacer(6);
+  const dh=fixedRow(deadlineCard,contentWidth,14);singleText(dh,"重要期限",Font.mediumSystemFont(11),C.sub);dh.addSpacer();
+  singleText(deadlineCard,deadlineData.ok?"30日以内の重要期限なし":"取得失敗",Font.mediumSystemFont(10),deadlineData.ok?C.sub:C.orange);
+}
+const scheduleCard=agendaCard.addStack();scheduleCard.layoutVertically();scheduleCard.size=new Size(contentWidth,0);
+const sh=fixedRow(scheduleCard,contentWidth,L.agendaHeading);
+singleText(sh,"予定",Font.semiboldSystemFont(11),C.sub);sh.addSpacer(7);
+const sectionRule=sh.addStack();sectionRule.size=new Size(28,1);sectionRule.backgroundColor=C.separator;sh.addSpacer();
+const schedulePartial=!eventsData.ok||!upcomingData.ok;
+const codeSourceWarning=runtime.codeSource==="lastGood"?"前回コード":runtime.codeSource==="network"?"":"取得元不明";
+if(codeSourceWarning){singleText(sh,codeSourceWarning,Font.semiboldSystemFont(9),C.orange);if(schedulePartial)sh.addSpacer(6);}
+if(schedulePartial)singleText(sh,"一部取得失敗",Font.mediumSystemFont(8),C.orange);
+if(!scheduleRows.length){
+  const empty=fixedRow(scheduleCard,contentWidth,agendaRowHeight);
+  singleText(empty,schedulePartial?"予定を取得できません":"直近の予定なし",Font.mediumSystemFont(11),schedulePartial?C.orange:C.sub);
+}else{
+  scheduleRows.forEach((item,index)=>{
+    const line=fixedRow(scheduleCard,contentWidth,agendaRowHeight);line.url=calendarURL();
+    const repeatDay=index>0&&sameCalendarDay(scheduleRows[index-1].date,item.date),dayBox=fixedRow(line,L.dayWidth,agendaRowHeight);
+    singleText(dayBox,repeatDay?"":(item.today?"今日":timelineDay(item.date)),Font.semiboldSystemFont(10),item.today?C.blue:C.text);
+    dayBox.addSpacer();line.addSpacer(L.columnGap);
+    const timeBox=fixedRow(line,L.timeWidth,agendaRowHeight);
+    singleText(timeBox,fmtTime(item.date,item.allDay),Font.mediumSystemFont(10),item.today?C.blue:C.sub);timeBox.addSpacer();line.addSpacer(L.columnGap);
+    const iconBox=fixedRow(line,L.iconWidth,agendaRowHeight);
+    if(item.combat)combatIcon(iconBox,item,10);else icon(iconBox,futureIconName(item),C.sub,10);
+    line.addSpacer(L.columnGap);
+    const titleWidth=contentWidth-L.dayWidth-L.timeWidth-L.iconWidth-L.columnGap*3,titleBox=fixedRow(line,titleWidth,agendaRowHeight);
+    // Emphasis follows timing, not sport/category. Native ellipsis is the last fallback.
+    singleText(titleBox,largeAgendaTitle(item),item.today?Font.semiboldSystemFont(12):Font.mediumSystemFont(12),C.text);titleBox.addSpacer();
   });
 }
-
-w.addSpacer(4);
-
-// WEATHER: six-day overview to replace the separate Weathernews home-screen widget.
+w.addSpacer(L.gap);
+// FORECAST: independent six-day context; slightly larger, consistently aligned numbers.
 if(largeWeatherUsable){
   const weatherBase=parseISODate(W.localDate)||dayStart(RUN_NOW);
   const weekDays=[0,1,2,3,4,5].map(offset=>{
-    const date=isoDay(addDays(weatherBase,offset));
-    return (W.daily||[]).find(day=>day.date===date)||null;
+    const date=isoDay(addDays(weatherBase,offset));return (W.daily||[]).find(day=>day.date===date)||null;
   });
   const weekComplete=weekDays.every(day=>day&&[day.code,day.max,day.min].every(x=>x!==null));
-
-  const weekCard=mkCard(w);
-  weekCard.size=new Size(L.width,0);
-  weekCard.setPadding(6,10,6,10);
-
-  const wh=weekCard.addStack();wh.centerAlignContent();
-  let wt=wh.addText("週間天気");
-  wt.font=Font.boldSystemFont(12);wt.textColor=C.text;
-  wh.addSpacer();
-
-  // Daily precipitation probability belongs with the daily forecast, not current conditions.
+  const weekCard=mkCard(w);weekCard.size=new Size(L.width,0);weekCard.setPadding(5,12,5,12);
+  const wh=fixedRow(weekCard,contentWidth,14);singleText(wh,"週間天気",Font.semiboldSystemFont(11),C.sub);wh.addSpacer();
   const rainKnown=numberOrNull(W.rain)!==null&&W.rain>=0&&W.rain<=100;
   singleText(wh,dailyRainLabel(W),Font.mediumSystemFont(9),rainKnown?C.sub:C.orange);
-
-  if(!weekComplete){
-    wh.addSpacer(6);
-    let warn=wh.addText("一部未取得");
-    warn.font=Font.systemFont(8);warn.textColor=C.orange;
-  }
-
-  weekCard.addSpacer(3);
-
+  if(!weekComplete){wh.addSpacer(6);singleText(wh,"一部未取得",Font.mediumSystemFont(8),C.orange);}
+  weekCard.addSpacer(2);
   if(weekComplete){
-    const grid=weekCard.addStack();
-    const innerWidth=L.width-20;
-    const gap=3;
-    const cellWidth=(innerWidth-gap*5)/6;
-
+    const grid=weekCard.addStack(),gap=3,cellWidth=(contentWidth-gap*5)/6;
     weekDays.forEach((day,index)=>{
-      const cell=grid.addStack();cell.layoutVertically();cell.size=new Size(cellWidth,46);
-
-      const d=parseISODate(day.date);
-      const label=index===0?"今日":(d?String(d.getDate())+["日","月","火","水","木","金","土"][d.getDay()]:"--");
-      centeredRow(cell,cellWidth,11,row=>{
-        const tx=singleText(row,label,Font.semiboldSystemFont(9),index===0?C.red:C.sub);
-        tx.minimumScaleFactor=0.9;
+      const cell=grid.addStack();cell.layoutVertically();cell.size=new Size(cellWidth,42);
+      const date=parseISODate(day.date),label=index===0?"今日":date.getDate()+["日","月","火","水","木","金","土"][date.getDay()];
+      centeredRow(cell,cellWidth,12,row=>singleText(row,label,Font.mediumSystemFont(9),index===0?C.red:C.sub));cell.addSpacer(1);
+      centeredRow(cell,cellWidth,16,row=>icon(row,weatherInfo(day.code)[1],largeWeatherTint(day.code),15));cell.addSpacer(1);
+      centeredRow(cell,cellWidth,12,row=>{
+        singleText(row,numberLabel(day.max),Font.semiboldSystemFont(10),C.red);singleText(row,"/",Font.mediumSystemFont(9),C.sub);singleText(row,numberLabel(day.min),Font.semiboldSystemFont(10),C.blue);
       });
-
-      cell.addSpacer(2);
-      centeredRow(cell,cellWidth,16,row=>icon(row,weatherInfo(day.code)[1],largeWeatherTint(day.code),15));
-
-      cell.addSpacer(2);
-      centeredRow(cell,cellWidth,11,row=>{
-        singleText(row,numberLabel(day.max),Font.semiboldSystemFont(9),C.red);
-        singleText(row,"/",Font.mediumSystemFont(8),C.gray);
-        singleText(row,numberLabel(day.min),Font.semiboldSystemFont(9),C.blue);
-      });
-
       if(index<weekDays.length-1)grid.addSpacer(gap);
     });
-  }else{
-    let empty=weekCard.addText("週間予報を取得できません");
-    empty.font=Font.mediumSystemFont(10);empty.textColor=C.orange;
-  }
+  }else singleText(weekCard,"週間予報を取得できません",Font.mediumSystemFont(10),C.orange);
 }
-
-w.addSpacer();
-w.refreshAfterDate=nextRefresh();
+w.addSpacer();w.refreshAfterDate=nextRefresh();
 console.log("[weather] source=open-meteo-best-match cell=nearest city="+position.city+
   " requested="+Number(position.lat).toFixed(3)+","+Number(position.lon).toFixed(3)+
   " grid="+(numberOrNull(W.apiLat)===null?"?":Number(W.apiLat).toFixed(3))+","+(numberOrNull(W.apiLon)===null?"?":Number(W.apiLon).toFixed(3))+
   " valid="+String(W.sourceTime||"?")+" code="+W.code+" displayCode="+weatherDisplayCode+
   " reason="+weatherDisplayReason+" precip="+String(W.currentPrecip)+" rain="+String(W.currentRain)+
   " showers="+String(W.currentShowers)+" snow="+String(W.currentSnowfall));
-console.log("[dashboard] "+VERSION+" large; loader="+(runtime.codeSource||"unknown")+"; "+largeState.issues.join(","));
-if(config.runsInWidget) Script.setWidget(w); else await w.presentLarge();
+console.log("[dashboard] "+VERSION+" large; budgetMax="+largeBudget+"pt; loader="+(runtime.codeSource||"unknown")+"; "+largeState.issues.join(","));
+if(config.runsInWidget)Script.setWidget(w);else await w.presentLarge();
 return renderReceipt();
