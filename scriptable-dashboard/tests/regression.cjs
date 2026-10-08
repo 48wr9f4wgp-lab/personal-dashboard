@@ -14,6 +14,8 @@ const sourceRoot = fs.existsSync(path.join(root, 'main.js')) ? root : path.dirna
 const mainPath = path.resolve(process.argv[2] || path.join(sourceRoot, 'main.js'));
 const loaderPath = path.resolve(process.argv[3] || path.join(sourceRoot, 'loader.js'));
 const source = fs.readFileSync(mainPath, 'utf8');
+const mainVersion = /const VERSION\s*=\s*"([^"]+)"/.exec(source)?.[1];
+if(!mainVersion)throw new Error('Main VERSION constant not found');
 const loader = fs.readFileSync(loaderPath, 'utf8');
 const baselinePath = path.join(root, 'main.v171.js');
 const old = fs.existsSync(baselinePath) ? fs.readFileSync(baselinePath, 'utf8') : null;
@@ -435,7 +437,7 @@ async function main(){
     });
     for(const preview of [false,true])await test(family+': render receipt follows '+(preview?'preview':'publication'),async()=>{
       const r=await run(source,{family,preview});
-      assert.deepEqual(plain(r.result),{dashboard:'ore-dashboard',version:'1.75-github',rendered:true});
+      assert.deepEqual(plain(r.result),{dashboard:'ore-dashboard',version:mainVersion,rendered:true});
       assert.equal(r.record.published.length+r.record.presented.length,1);
     });
   }
