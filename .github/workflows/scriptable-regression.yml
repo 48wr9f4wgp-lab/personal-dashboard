@@ -1,0 +1,30 @@
+name: Scriptable dashboard regression
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "scriptable-dashboard/**"
+      - ".github/workflows/scriptable-regression.yml"
+  push:
+    branches: [main]
+    paths:
+      - "scriptable-dashboard/**"
+      - ".github/workflows/scriptable-regression.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Run offline regression suite
+        run: node scriptable-dashboard/tests/regression.cjs
