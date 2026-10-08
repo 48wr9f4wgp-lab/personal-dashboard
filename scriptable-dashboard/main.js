@@ -1,8 +1,8 @@
-// 俺専用ダッシュボード v1.75-github
+// 俺専用ダッシュボード v1.76-github
 // Remote main for Scriptable loader.
 // IMPORTANT: Script.complete() は loader 側で呼ぶ。
 
-const VERSION = "1.75-github";
+const VERSION = "1.76-github";
 
 const USER = globalThis.ORE_DASH_CONFIG || {};
 const RUN_NOW = new Date();
@@ -862,7 +862,7 @@ if(resolveFamily()==="medium"){
   return renderReceipt();
 }
 
-// LARGE v1.73: preserve weather codes; disclose fallback independently of weather availability.
+// LARGE v1.76: readable date and weekday + weather-first hero header.
 // Same data/design language as Medium, but uses the extra area for broader context.
 const L={width:329,dayWidth:38,timeWidth:44,iconWidth:14,columnGap:3};
 const runtime=globalThis.ORE_DASH_RUNTIME||{};
@@ -891,36 +891,49 @@ w.url=calendarURL();
 // OVERVIEW HEADER
 const header=w.addStack();header.layoutVertically();header.size=new Size(L.width,0);
 
-// Top weather area: left = date/place/as-of, right = weather first, then temperatures.
-// Fixed row heights include room for the text; the complete header has a 50pt budget.
+// Large header: primary date + weekday, with the weather condition as the right-side hero.
+// Two contained columns; retain the current weather semantics and show its model timestamp.
 const headerLeftWidth=112;
 const headerGap=12;
 const headerRightWidth=L.width-headerLeftWidth-headerGap;
-const headerHeight=50;
+const headerHeight=64;
 const largeWeatherUsable=W.ok&&!W.stale&&!W.timeUnverified;
 
 const headerGrid=header.addStack();
 headerGrid.size=new Size(L.width,headerHeight);
 headerGrid.topAlignContent();
 
+// Date first: large day number, then an unmistakable month and weekday.
 const identity=headerGrid.addStack();
 identity.layoutVertically();
 identity.size=new Size(headerLeftWidth,headerHeight);
 
-const dateLine=fixedRow(identity,headerLeftWidth,20);
-let t=singleText(dateLine,todayText(),Font.semiboldSystemFont(15),C.text);
-t.minimumScaleFactor=0.9;
+const dateLine=fixedRow(identity,headerLeftWidth,38);
+singleText(dateLine,String(RUN_NOW.getDate()),Font.boldSystemFont(31),C.text);
+dateLine.addSpacer(5);
+
+const dateMeta=dateLine.addStack();
+dateMeta.layoutVertically();
+dateMeta.size=new Size(65,36);
+
+let t=dateMeta.addText((RUN_NOW.getMonth()+1)+"月");
+t.font=Font.mediumSystemFont(11);t.textColor=C.sub;t.lineLimit=1;
+dateMeta.addSpacer(1);
+
+t=dateMeta.addText(["日","月","火","水","木","金","土"][RUN_NOW.getDay()]+"曜日");
+t.font=Font.boldSystemFont(14);t.textColor=C.text;t.lineLimit=1;
 dateLine.addSpacer();
+
 identity.addSpacer(1);
 
-const placeLine=fixedRow(identity,headerLeftWidth,12);
+const placeLine=fixedRow(identity,headerLeftWidth,11);
 t=singleText(placeLine,(position.ok?"":"予備 ")+position.city,Font.mediumSystemFont(10),C.sub);
 t.minimumScaleFactor=0.85;
 placeLine.addSpacer();
 
-// Keep the source time visible without competing with the weather headline.
+// Show the time of the model estimate; don't conflate it with device clock time.
 if(largeWeatherUsable){
-  identity.addSpacer(2);
+  identity.addSpacer(1);
   const asOfLine=fixedRow(identity,headerLeftWidth,12);
   const asOf=weatherAsOfLabel(W);
   singleText(asOfLine,asOf?"天気 "+asOf:"天気 時刻不明",Font.mediumSystemFont(9),asOf?C.sub:C.orange);
@@ -929,27 +942,30 @@ if(largeWeatherUsable){
 
 headerGrid.addSpacer(headerGap);
 
+// Weather first: larger condition name and icon, with temperature and highs/lows below.
 const weatherPane=headerGrid.addStack();
 weatherPane.layoutVertically();
 weatherPane.size=new Size(headerRightWidth,headerHeight);
 
 if(largeWeatherUsable){
-  // Weather name is a headline, not a small grey annotation beside the temperature.
-  const conditionLine=fixedRow(weatherPane,headerRightWidth,21);
+  const conditionLine=fixedRow(weatherPane,headerRightWidth,32);
   conditionLine.addSpacer();
-  singleText(conditionLine,weatherName,Font.semiboldSystemFont(16),C.text);
-  conditionLine.addSpacer(6);
-  icon(conditionLine,weatherIcon,largeWeatherTint(weatherDisplayCode,W.isDay),20);
+  t=singleText(conditionLine,weatherName,Font.boldSystemFont(19),C.text);
+  t.minimumScaleFactor=0.9;
+  conditionLine.addSpacer(7);
+  icon(conditionLine,weatherIcon,largeWeatherTint(weatherDisplayCode,W.isDay),25);
 
-  const temperatureLine=fixedRow(weatherPane,headerRightWidth,29);
+  const temperatureLine=fixedRow(weatherPane,headerRightWidth,32);
   temperatureLine.addSpacer();
   singleText(temperatureLine,numberLabel(W.temp)+"°",Font.boldSystemFont(24),C.text);
-  temperatureLine.addSpacer(8);
-  singleText(temperatureLine,"↑"+numberLabel(W.max)+"°  ↓"+numberLabel(W.min)+"°",Font.mediumSystemFont(11),C.sub);
+  temperatureLine.addSpacer(9);
+  t=singleText(temperatureLine,"↑"+numberLabel(W.max)+"°  ↓"+numberLabel(W.min)+"°",Font.mediumSystemFont(11),C.sub);
+  t.minimumScaleFactor=0.9;
 }else{
-  const weatherError=fixedRow(weatherPane,headerRightWidth,27);
+  const weatherError=fixedRow(weatherPane,headerRightWidth,32);
   weatherError.addSpacer();
-  singleText(weatherError,weatherFailureText(W),Font.semiboldSystemFont(10),C.orange);
+  t=singleText(weatherError,weatherFailureText(W),Font.semiboldSystemFont(10),C.orange);
+  t.minimumScaleFactor=0.9;
 }
 
 w.addSpacer(4);
