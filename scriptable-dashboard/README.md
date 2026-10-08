@@ -15,10 +15,18 @@ Remote main:
 
 ## Current candidate
 
-- Dashboard: `1.77-github`
+- Dashboard: `1.78-github`
 - Loader: `1.4`
 - Target layouts: Medium (calendar first) and Large (weather overview)
 - Preserve local `ORE_DASH_CONFIG` when updating the loader. Do not copy personal settings into this repository.
+
+### Large v1.78: device-evidence layout repair
+- Keep the v1.77 header, two backgrounds and 6 schedules / 2 deadlines / 6 forecast days.
+- Time columns are 44pt with 10pt monospaced HH:mm and explicit zero padding. Dates retain 38pt. Titles, not times, may use native ellipsis.
+- Deadline text has an explicit trailing spacer to align with the leading content edge. Two-line titles are retained.
+- With zero/one deadline, row height is 23/21pt, with 4pt section spacing and 6pt card gaps. Two-deadline geometry retains the prior 354pt design maximum.
+- Structural tests catch the v1.77 time-column and missing-leading-alignment regressions. They do not simulate native iOS truncation.
+- iPhone screenshot confirmation is required; do not mark native clipping fixed from Node/CI tests alone.
 
 ### Large v1.77: two-card overview
 - Natural month/day headline and full weekday, with the city and model timestamp retained.

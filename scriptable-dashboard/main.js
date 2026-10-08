@@ -1,8 +1,8 @@
-// 俺専用ダッシュボード v1.77-github
+// 俺専用ダッシュボード v1.78-github
 // Remote main for Scriptable loader.
 // IMPORTANT: Script.complete() は loader 側で呼ぶ。
 
-const VERSION = "1.77-github";
+const VERSION = "1.78-github";
 
 const USER = globalThis.ORE_DASH_CONFIG || {};
 const RUN_NOW = new Date();
@@ -298,6 +298,7 @@ function hasFlagEmoji(value){
     return cp>=0x1F1E6 && cp<=0x1F1FF;
   });
 }
+
 
 function isCombatEvent(title,calendarTitle=""){
   if(isInactiveTitle(title)) return false;
@@ -862,18 +863,32 @@ if(resolveFamily()==="medium"){
   return renderReceipt();
 }
 
-// LARGE v1.77: one deadline-first agenda card and one six-day forecast card.
+// LARGE v1.78: protect full times, left-align deadline titles, redistribute sparse-state spacing.
 // No changes to data selection, permissions, weather semantics or Medium.
-const L={width:329,dayWidth:36,timeWidth:35,iconWidth:12,columnGap:3,header:54,row:15,deadlineMeta:14,deadlineTitleMax:28,deadlineGap:4,agendaHeading:16,cardPad:6,gap:4,weekHeight:68};
+const L={width:329,dayWidth:38,timeWidth:44,iconWidth:12,columnGap:3,header:54,row:15,deadlineMeta:14,deadlineTitleMax:28,deadlineGap:4,agendaHeading:16,cardPad:6,gap:4,weekHeight:68};
 const runtime=globalThis.ORE_DASH_RUNTIME||{};
 const largeState=mediumState(eventsData,upcomingData,deadlineData,W,position,runtime);
 const largeDeadlines=actionableDeadlines.slice(0,2);
 const largeWeatherUsable=W.ok&&!W.stale&&!W.timeUnverified;
 // Use breathing room when fewer deadlines exist; the two-long-deadline budget stays bounded.
-const agendaRowHeight=largeDeadlines.length<2?18:L.row;
+const sparseAgenda=largeDeadlines.length<2;
+const agendaRowHeight=largeDeadlines.length===0?23:largeDeadlines.length===1?21:L.row;
+const agendaSectionGap=sparseAgenda?4:0;
+const largeCardGap=sparseAgenda?6:L.gap;
 // Design budget, not a measurement of native iOS font shaping or the live widget frame.
 const largeAgendaMax=L.cardPad*2+2*(L.deadlineMeta+1+L.deadlineTitleMax)+L.deadlineGap+L.agendaHeading+6*L.row;
 const largeBudget=16+L.header+2*L.gap+largeAgendaMax+L.weekHeight;
+// A conservative bound for the selected state, including two lines per deadline.
+// It is not a native text measurement. Keep the two-long-deadline maximum unchanged.
+const deadlineHeightBound=largeDeadlines.length
+  ?largeDeadlines.length*(L.deadlineMeta+1+L.deadlineTitleMax)+(largeDeadlines.length-1)*L.deadlineGap:28;
+const agendaHeightBound=L.cardPad*2+deadlineHeightBound+agendaSectionGap+L.agendaHeading+Math.max(1,scheduleRows.length)*agendaRowHeight;
+const largeCurrentBudget=16+L.header+2*largeCardGap+agendaHeightBound+L.weekHeight;
+function largeTextCell(parent,width,height){
+  const cell=fixedRow(parent,width,height);
+  cell.layoutHorizontally();cell.setPadding(0,0,0,0);cell.spacing=0;
+  return cell;
+}
 function largeWeatherTint(code,isDay=null){
   if(code===0||code===1||code===2)return isDay===false?C.purple:C.orange;
   if(code===3||code===45||code===48)return C.gray;
@@ -921,7 +936,7 @@ if(largeWeatherUsable){
   const errorLine=fixedRow(weatherPane,weatherWidth,27);errorLine.addSpacer();
   t=singleText(errorLine,weatherFailureText(W),Font.semiboldSystemFont(10),C.orange);t.minimumScaleFactor=0.9;
 }
-w.addSpacer(L.gap);
+w.addSpacer(largeCardGap);
 // AGENDA: only the common parent has a background; sub-sections are transparent.
 const agendaCard=mkCard(w);agendaCard.size=new Size(L.width,0);agendaCard.setPadding(L.cardPad,12,L.cardPad,12);agendaCard.url=calendarURL();
 const contentWidth=L.width-24;
@@ -936,14 +951,18 @@ if(deadlineData.ok&&largeDeadlines.length){
     }
     meta.addSpacer();singleText(meta,largeDeadlineCountdown(item.date),Font.semiboldSystemFont(10),urgency);
     deadlineCard.addSpacer(1);
-    const titleBox=deadlineCard.addStack();titleBox.size=new Size(contentWidth,0);
+    const titleBox=largeTextCell(deadlineCard,contentWidth,0);
     t=titleBox.addText(item.title);t.font=Font.mediumSystemFont(11);t.textColor=C.text;t.lineLimit=2;t.minimumScaleFactor=1;
+    // WidgetText.leftAlignText() does not position text inside a Stack.
+    // A trailing flexible spacer pins this one/two-line label to the leading edge.
+    titleBox.addSpacer();
     if(index<largeDeadlines.length-1)deadlineCard.addSpacer(L.deadlineGap);
   });
 }else{
   const dh=fixedRow(deadlineCard,contentWidth,14);singleText(dh,"重要期限",Font.mediumSystemFont(11),C.sub);dh.addSpacer();
   singleText(deadlineCard,deadlineData.ok?"30日以内の重要期限なし":"取得失敗",Font.mediumSystemFont(10),deadlineData.ok?C.sub:C.orange);
 }
+if(agendaSectionGap)agendaCard.addSpacer(agendaSectionGap);
 const scheduleCard=agendaCard.addStack();scheduleCard.layoutVertically();scheduleCard.size=new Size(contentWidth,0);
 const sh=fixedRow(scheduleCard,contentWidth,L.agendaHeading);
 singleText(sh,"予定",Font.semiboldSystemFont(11),C.sub);sh.addSpacer(7);
@@ -957,21 +976,24 @@ if(!scheduleRows.length){
   singleText(empty,schedulePartial?"予定を取得できません":"直近の予定なし",Font.mediumSystemFont(11),schedulePartial?C.orange:C.sub);
 }else{
   scheduleRows.forEach((item,index)=>{
-    const line=fixedRow(scheduleCard,contentWidth,agendaRowHeight);line.url=calendarURL();
-    const repeatDay=index>0&&sameCalendarDay(scheduleRows[index-1].date,item.date),dayBox=fixedRow(line,L.dayWidth,agendaRowHeight);
+    const line=largeTextCell(scheduleCard,contentWidth,agendaRowHeight);line.url=calendarURL();
+    const repeatDay=index>0&&sameCalendarDay(scheduleRows[index-1].date,item.date),dayBox=largeTextCell(line,L.dayWidth,agendaRowHeight);
     singleText(dayBox,repeatDay?"":(item.today?"今日":timelineDay(item.date)),Font.semiboldSystemFont(10),item.today?C.blue:C.text);
     dayBox.addSpacer();line.addSpacer(L.columnGap);
-    const timeBox=fixedRow(line,L.timeWidth,agendaRowHeight);
-    singleText(timeBox,fmtTime(item.date,item.allDay),Font.mediumSystemFont(10),item.today?C.blue:C.sub);timeBox.addSpacer();line.addSpacer(L.columnGap);
-    const iconBox=fixedRow(line,L.iconWidth,agendaRowHeight);
+    const timeBox=largeTextCell(line,L.timeWidth,agendaRowHeight);
+    // Reserve 44pt for the complete HH:mm. Equal-width digits avoid time-dependent fit.
+    const timeFont=item.allDay?Font.mediumSystemFont(10):Font.mediumMonospacedSystemFont(10);
+    singleText(timeBox,fmtTime(item.date,item.allDay),timeFont,item.today?C.blue:C.sub);
+    timeBox.addSpacer();line.addSpacer(L.columnGap);
+    const iconBox=largeTextCell(line,L.iconWidth,agendaRowHeight);
     if(item.combat)combatIcon(iconBox,item,10);else icon(iconBox,futureIconName(item),C.sub,10);
     line.addSpacer(L.columnGap);
-    const titleWidth=contentWidth-L.dayWidth-L.timeWidth-L.iconWidth-L.columnGap*3,titleBox=fixedRow(line,titleWidth,agendaRowHeight);
+    const titleWidth=contentWidth-L.dayWidth-L.timeWidth-L.iconWidth-L.columnGap*3,titleBox=largeTextCell(line,titleWidth,agendaRowHeight);
     // Emphasis follows timing, not sport/category. Native ellipsis is the last fallback.
     singleText(titleBox,largeAgendaTitle(item),item.today?Font.semiboldSystemFont(12):Font.mediumSystemFont(12),C.text);titleBox.addSpacer();
   });
 }
-w.addSpacer(L.gap);
+w.addSpacer(largeCardGap);
 // FORECAST: independent six-day context; slightly larger, consistently aligned numbers.
 if(largeWeatherUsable){
   const weatherBase=parseISODate(W.localDate)||dayStart(RUN_NOW);
@@ -1006,6 +1028,6 @@ console.log("[weather] source=open-meteo-best-match cell=nearest city="+position
   " valid="+String(W.sourceTime||"?")+" code="+W.code+" displayCode="+weatherDisplayCode+
   " reason="+weatherDisplayReason+" precip="+String(W.currentPrecip)+" rain="+String(W.currentRain)+
   " showers="+String(W.currentShowers)+" snow="+String(W.currentSnowfall));
-console.log("[dashboard] "+VERSION+" large; budgetMax="+largeBudget+"pt; loader="+(runtime.codeSource||"unknown")+"; "+largeState.issues.join(","));
+console.log("[dashboard] "+VERSION+" large; budgetMax="+largeBudget+"pt; stateBudgetBound="+largeCurrentBudget+"pt; loader="+(runtime.codeSource||"unknown")+"; "+largeState.issues.join(","));
 if(config.runsInWidget)Script.setWidget(w);else await w.presentLarge();
 return renderReceipt();

@@ -82,7 +82,7 @@ function env(opts={}) {
     async presentMedium(){record.presented.push({family:'medium',widget:this});}
   }
   const Font={};
-  for(const name of ['systemFont','mediumSystemFont','semiboldSystemFont','boldSystemFont'])
+  for(const name of ['systemFont','mediumSystemFont','semiboldSystemFont','boldSystemFont','mediumMonospacedSystemFont'])
     Font[name]=size=>({name,size});
   class DateFormatter {
     string(d){d=new Date(+d);switch(this.dateFormat){
@@ -538,9 +538,9 @@ async function main(){
     });
   }
 
-  await test('v177 protected data and Medium prefix unchanged from v176',()=>{
-    const prefix=source.slice(0,source.indexOf('// LARGE')).replace(/1\.(76|77)-github/g,'VERSION');
-    assert.equal(crypto.createHash('sha256').update(prefix).digest('hex'),'9c51a69d049d1c68f8a6dda4e9e0d0637f934e347cc239331e0f5ea9fc72de12');
+  await test('protected data and Medium prefix unchanged except version and blank lines',()=>{
+    const prefix=source.slice(0,source.indexOf('// LARGE')).replace(/1\.(76|77|78)-github/g,'VERSION').replace(/\n{3,}/g,'\n\n');
+    assert.equal(crypto.createHash('sha256').update(prefix).digest('hex'),'cea68b421b42c5b8994426eaff67d8db5202464374135ba7dc65871adbe629de');
   });
   for(const count of [0,1,2])await test('v177 deadline count '+count+' keeps all six appointments',async()=>{
     const items=fixtures();let seen=0;
@@ -550,6 +550,76 @@ async function main(){
     assert.equal(a.filter(t=>/^Schedule |^UFC |^PRIME /.test(t)).length,6);
     assert.equal(texts(card(r.widget,'重要期限')).filter(t=>/テスト.*期限/.test(t)).length,count);
   });
+  // Device regression IMG_3297: every HH:mm was truncated in the 35pt column.
+  // These tests enforce structural safeguards; they do not measure native glyphs.
+  for(const dark of [false,true])for(const count of [0,1,2]){
+    await test('v178 complete time slots, zero padding and fixed column sum '+dark+' '+count,async()=>{
+      const clocks=[[0,0],[4,7],[9,59],[17,30],[23,59],[0,0]];
+      const events=clocks.map(([hour,minute],i)=>{
+        const start=shifted(new Date(NOW),i+1);start.setHours(hour,minute,0,0);
+        return {title:'Appointment '+i+' '+('Long title '.repeat(10)),calendar:{title:'Test'},notes:'',startDate:start,
+          endDate:new Date(+start+(i===5?86400000:3600000)),isAllDay:i===5};
+      });
+      events.push(...fixtures().filter(e=>/テスト.*期限/.test(e.title)).slice(0,count));
+      const r=await run(source,{dark,events});const schedule=card(r.widget,'予定');
+      const parents=nodes(schedule,'stack');
+      const labels=nodes(schedule,'text').filter(n=>/^(\d{2}:\d{2}|終日)$/.test(n.text));
+      assert.equal(labels.length,6);
+      assert.deepEqual(labels.map(n=>n.text),['00:00','04:07','09:59','17:30','23:59','終日']);
+      for(const n of labels){
+        const cell=parents.find(p=>p.children.includes(n));
+        assert.equal(cell.size.width,44,'time column must not shrink to 35pt');
+        assert.deepEqual(plain(cell.padding),[0,0,0,0]);assert.equal(cell.spacing,0);
+        assert.equal(cell.layout,'horizontal');assert.equal(n.font.size,10);
+        assert.equal(n.lineLimit,1);assert.equal(n.minimumScaleFactor,1,'do not make times smaller to fit');
+        if(n.text!=='終日')assert.equal(n.font.name,'mediumMonospacedSystemFont');
+        const row=parents.find(p=>p.children.includes(cell));
+        assert.equal(row.size.width,305);assert.deepEqual(plain(row.padding),[0,0,0,0]);
+        const sum=row.children.reduce((v,c)=>v+(c.kind==='stack'?c.size.width:c.length),0);
+        assert.equal(sum,row.size.width,'fixed columns must fit without stealing time width');
+        assert.equal(row.children[0].size.width,38,'date width protected');
+        assert.equal(row.size.height,count===0?23:count===1?21:15);
+      }
+      const log=r.record.logs.find(x=>x.includes('stateBudgetBound='));
+      assert.ok(log,'state-specific height bound must be recorded');
+      assert.ok(+/stateBudgetBound=(\d+)pt/.exec(log)[1]<=354);
+      assert.equal(nodes(card(r.widget,'週間天気'),'image').length,6);
+    });
+  }
+  for(const dark of [false,true])await test('v178 deadline titles lead from the content edge '+dark,async()=>{
+    const events=fixtures();for(const e of events)if(/テスト.*期限/.test(e.title))e.title+=' 長い条件の確認'.repeat(20);
+    const r=await run(source,{dark,events});const deadline=card(r.widget,'重要期限');
+    const parents=nodes(deadline,'stack');
+    const labels=nodes(deadline,'text').filter(n=>n.text.includes('長い条件'));
+    assert.equal(labels.length,2);
+    for(const n of labels){
+      const cell=parents.find(p=>p.children.includes(n));
+      assert.equal(cell.children[0],n);assert.equal(cell.children[1].kind,'spacer');assert.equal(cell.children[1].length,null);
+      assert.equal(cell.children.length,2,'no leading spacer may indent the deadline');
+      assert.equal(cell.layout,'horizontal');assert.deepEqual(plain(cell.padding),[0,0,0,0]);
+      assert.equal(cell.size.width,305);assert.equal(n.lineLimit,2);assert.equal(n.minimumScaleFactor,1);
+    }
+  });
+  for(const count of [0,1,2])await test('v178 bounded spacing redistributes sparse-state whitespace '+count,async()=>{
+    const items=fixtures();let kept=0;
+    const events=items.filter(e=>!/テスト.*期限/.test(e.title)||kept++<count);
+    const r=await run(source,{events});const d=card(r.widget,'重要期限'),s=card(r.widget,'予定');
+    const agenda=nodes(r.widget,'stack').find(n=>n.children.includes(d)&&n.children.includes(s));
+    const between=agenda.children.slice(agenda.children.indexOf(d)+1,agenda.children.indexOf(s));
+    assert.equal(between.length,count<2?1:0);
+    if(count<2)assert.equal(between[0].length,4);
+    const gaps=r.widget.children.filter(n=>n.kind==='spacer'&&n.length!==null);
+    assert.deepEqual(gaps.map(n=>n.length),count<2?[6,6]:[4,4]);
+    const log=r.record.logs.find(x=>x.includes('stateBudgetBound='));
+    assert.ok(+/stateBudgetBound=(\d+)pt/.exec(log)[1]<=354);
+    assert.equal(nodes(s,'text').filter(n=>/^Schedule |^UFC |^PRIME /.test(n.text)).length,6);
+  });
+  await test('v178 known last-good and failures remain separate after alignment repair',async()=>{
+    const r=await run(source,{weatherError:true,locationError:true,deadlineError:true,todayError:true,runtime:{codeSource:'lastGood'}});
+    const tt=texts(r.widget);assert.ok(tt.includes('前回コード'));assert.ok(tt.includes('天気を取得できません'));
+    assert.ok(tt.includes('取得失敗'));assert.ok(tt.includes('一部取得失敗'));assert.equal(r.record.calendarWrites,0);
+  });
+
   const failed=results.filter(r=>r.status==='FAIL');
   const report={source:mainPath,mainBlob:gitHash(source),loaderBlob:gitHash(loader),environment:process.version,
     passed:results.length-failed.length,failed:failed.length,total:results.length,
