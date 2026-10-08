@@ -287,6 +287,31 @@ async function main(){
   for(const family of ['large','medium'])await test('Preview route '+family,async()=>{
     const r=await run(source,{family,preview:true});assert.equal(r.record.published.length,0);assert.equal(r.record.presented[0].family,family);
   });
+  for(const dark of [false,true])for(const dateIso of ['2030-01-30T12:00:00+09:00','2030-10-31T12:00:00+09:00']){
+    await test('Large header day/weekday/weather priority '+(dark?'dark':'light')+' '+dateIso,async()=>{
+      const now=Date.parse(dateIso);
+      const r=await run(source,{family:'large',dark,now});
+      const all=nodes(r.widget,'text');
+      const d=new Date(now);
+      const find=(value,size)=>all.find(n=>n.text===value&&n.font?.size===size);
+      assert.ok(find(String(d.getDate()),31),'day number not 31pt');
+      assert.ok(find((d.getMonth()+1)+'月',11),'month missing');
+      assert.ok(find(['日','月','火','水','木','金','土'][d.getDay()]+'曜日',14),'weekday not 14pt');
+      assert.ok(find('くもり',19),'weather condition not 19pt');
+      assert.ok(find('22°',24),'temperature missing');
+      assert.ok(nodes(r.widget,'image').some(n=>n.image?.symbol==='cloud.fill'&&n.imageSize?.width===25),'25pt weather hero icon missing');
+      assert.ok(nodes(r.widget,'stack').some(n=>n.size?.width===329&&n.size?.height===64),'64pt header not found');
+      assert.ok(card(r.widget,'予定'));assert.ok(card(r.widget,'重要期限'));assert.ok(card(r.widget,'週間天気'));
+    });
+  }
+  for(const dark of [false,true])await test('Large header bad-weather fail-safe '+(dark?'dark':'light'),async()=>{
+    const r=await run(source,{family:'large',dark,weatherError:true,runtime:{codeSource:'lastGood'}});
+    const tt=texts(r.widget);
+    assert.ok(tt.includes('天気を取得できません'));
+    assert.ok(tt.includes('前回コード'));
+    assert.ok(tt.includes('予定'));
+    assert.ok(!tt.includes('週間天気'));
+  });
   await test('Large: 6 schedules, 2 deadlines, 6 days retained',async()=>{
     const r=await run();const a=texts(card(r.widget,'予定'));const d=texts(card(r.widget,'重要期限'));const w=card(r.widget,'週間天気');
     assert.equal(a.filter(t=>/^Schedule |^UFC |^PRIME /.test(t)).length,6);
