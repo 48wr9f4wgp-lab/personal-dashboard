@@ -15,10 +15,16 @@ Remote main:
 
 ## Current candidate
 
-- Dashboard: `1.75-github`
+- Dashboard: `1.76-github`
 - Loader: `1.4`
 - Target layouts: Medium (calendar first) and Large (weather overview)
 - Preserve local `ORE_DASH_CONFIG` when updating the loader. Do not copy personal settings into this repository.
+
+### Large header v1.76
+- Date uses a 31pt day number with explicit month and weekday, rather than a compressed one-line date.
+- Current weather has a 19pt headline and 25pt condition icon; temperature remains readable beneath.
+- Existing event, deadline, weekly forecast, Medium, weather validation, and loader behavior remain unchanged.
+- iPhone Light/Dark screenshots are required before calling the new visual layout device-verified.
 
 ### Reliability changes
 
