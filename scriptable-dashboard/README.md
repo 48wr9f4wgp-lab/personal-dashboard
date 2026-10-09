@@ -15,10 +15,23 @@ Remote main:
 
 ## Current candidate
 
-- Dashboard: `1.78-github`
+- Dashboard: `1.79-github`
 - Loader: `1.4`
 - Target layouts: Medium (calendar first) and Large (weather overview)
 - Preserve local `ORE_DASH_CONFIG` when updating the loader. Do not copy personal settings into this repository.
+
+### v1.79: semantic audit repairs
+- Timed deadlines retain the Calendar entry's start time and explicit all-day flag. The exact time is shown, with a distinct elapsed state. All-day entries never gain an invented time; no submission/completion state is inferred.
+- Same-day deadline/start/end transitions crossed while requests are outstanding are evaluated at render time, while the existing midnight day snapshot is retained.
+- Ongoing timed entries show their end time with an explicit end label. Overnight entries retain the original start date, and multi-day all-day entries show their stored date span. An explicit timed flag is not reclassified as all-day merely because duration is 24 hours.
+- Both widget sizes preserve postponed/status/class/year information and unknown suffixes before native title ellipsis.
+- GPS and reverse geocoding have separate 4,000ms/2,000ms await bounds using Scriptable Timer. Independent Calendar reads start first. Late location responses do not mutate the completed view; the native request itself is not cancellable here.
+- Valid coordinates with unavailable geocoding display '現在地・地名不明', never an unrelated fallback city's name. Invalid fallback coordinates do not trigger a weather request.
+- Medium shows the weather model timestamp rather than implying render age is weather age. In compact mode (<=320pt), the model timestamp takes priority over today's daily rain probability; the regular Medium retains both.
+- Medium uses the same semantic weather colors as Large. Unknown current day/night uses a neutral symbol and disclosure; daily forecasts remain daily summaries.
+- Request the next refresh at an approaching timed deadline or schedule boundary, without promising iOS will honor that time.
+- Preserve two-card Large layout, 44pt time columns, 6 schedules/2 deadlines/6 forecasts, Medium geometry, Loader v1.4 and local configuration.
+- Local offline suite: 425 cases pass; the same acceptance suite rejects the old v1.78 behavior in 78 conditions. These are conditions, not separate bug counts. Native text fitting and Timer behavior still require iPhone verification.
 
 ### Large v1.78: device-evidence layout repair
 - Keep the v1.77 header, two backgrounds and 6 schedules / 2 deadlines / 6 forecast days.

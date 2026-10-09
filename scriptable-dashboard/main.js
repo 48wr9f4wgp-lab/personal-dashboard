@@ -1,8 +1,8 @@
-// 俺専用ダッシュボード v1.78-github
+// 俺専用ダッシュボード v1.79-github
 // Remote main for Scriptable loader.
 // IMPORTANT: Script.complete() は loader 側で呼ぶ。
 
-const VERSION = "1.78-github";
+const VERSION = "1.79-github";
 
 const USER = globalThis.ORE_DASH_CONFIG || {};
 const RUN_NOW = new Date();
@@ -65,14 +65,38 @@ function calName(x){return x.calendar&&x.calendar.title?normalize(x.calendar.tit
 function mkCard(p){const c=p.addStack();c.layoutVertically();c.backgroundColor=C.card;c.cornerRadius=14;c.setPadding(10,11,10,11);return c;}
 function section(p,symbol,title,color){const r=p.addStack();r.centerAlignContent();icon(r,symbol,color,12);r.addSpacer(5);const t=r.addText(title);t.font=Font.boldSystemFont(12);t.textColor=C.text;return r;}
 
+// Bounds the await, not the native GPS operation. Late completion never rewrites a widget.
+// Timer uses milliseconds: https://docs.scriptable.app/timer/
+function boundedCall(start,milliseconds){
+  return new Promise(resolve=>{
+    let settled=false,timer=null;
+    const finish=result=>{
+      if(settled)return;settled=true;
+      try{if(timer)timer.invalidate();}catch(_){}
+      resolve(result);
+    };
+    try{
+      if(typeof Timer==="undefined"||typeof Timer.schedule!=="function"){
+        finish({ok:false,reason:"timer-unavailable"});return;
+      }
+      timer=Timer.schedule(milliseconds,false,()=>finish({ok:false,reason:"timeout"}));
+      Promise.resolve().then(start).then(value=>finish({ok:true,value}),()=>finish({ok:false,reason:"failed"}));
+    }catch(_){finish({ok:false,reason:"failed"});}
+  });
+}
 async function getPosition(){
-  try{
-    Location.setAccuracyToThreeKilometers();
-    const loc=await Location.current();
-    let city=CFG.fallbackCity;
-    try{const p=await Location.reverseGeocode(loc.latitude,loc.longitude,"ja_JP");if(p&&p[0])city=p[0].locality||p[0].subLocality||city;}catch(_){}
-    return {ok:true,city,lat:loc.latitude,lon:loc.longitude};
-  }catch(_){return {ok:false,city:CFG.fallbackCity,lat:CFG.fallbackLat,lon:CFG.fallbackLon};}
+  const fallback=reason=>({ok:false,cityOK:false,city:normalize(CFG.fallbackCity)||"予備地点",
+    lat:coordinateOrNull(CFG.fallbackLat,-90,90),lon:coordinateOrNull(CFG.fallbackLon,-180,180),reason});
+  const result=await boundedCall(()=>{
+    Location.setAccuracyToThreeKilometers();return Location.current();
+  },4000);
+  if(!result.ok)return fallback(result.reason);
+  const loc=result.value||{},lat=coordinateOrNull(loc.latitude,-90,90),lon=coordinateOrNull(loc.longitude,-180,180);
+  if(lat===null||lon===null)return fallback("invalid-coordinates");
+  const geocode=await boundedCall(()=>Location.reverseGeocode(lat,lon,"ja_JP"),2000);
+  const place=geocode.ok&&Array.isArray(geocode.value)?geocode.value[0]:null;
+  const city=place&&((typeof place.locality==="string"?normalize(place.locality):"")||(typeof place.subLocality==="string"?normalize(place.subLocality):""));
+  return {ok:true,cityOK:!!city,city:city||"現在地・地名不明",lat,lon,reason:city?"":"geocode-unavailable"};
 }
 
 // The age threshold is a display safety policy, not a forecast-accuracy claim.
@@ -119,6 +143,7 @@ async function getWeather(pos){
     temp:null,code:-1,isDay:null,currentPrecip:null,currentRain:null,currentShowers:null,currentSnowfall:null,
     max:null,min:null,rain:null,daily:[],localDate:isoDay(RUN_NOW),sourceTime:"",apiLat:null,apiLon:null};
   try{
+    if(coordinateOrNull(pos.lat,-90,90)===null||coordinateOrNull(pos.lon,-180,180)===null)return missing;
     const u="https://api.open-meteo.com/v1/forecast?latitude="+pos.lat+"&longitude="+pos.lon+"&current=temperature_2m,weather_code,is_day,precipitation,rain,showers,snowfall&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max&timezone=auto&forecast_days=7&cell_selection=nearest";
     const r=new Request(u);r.timeoutInterval=10;const j=await r.loadJSON();
     if(!j||j.error||!j.current)return missing;
@@ -151,7 +176,7 @@ async function getWeather(pos){
     const first=daily.find(day=>day.date===localDate)||{};
     const base=parseISODate(localDate);
     const required=[0,1,2,3].map(n=>daily.find(day=>day.date===isoDay(addDays(base,n))));
-    const partial=stale||timeUnverified||isDay===null||required.some(day=>!day||[day.code,day.max,day.min,day.rain].some(x=>x===null));
+    const partial=stale||timeUnverified||required.some(day=>!day||[day.code,day.max,day.min,day.rain].some(x=>x===null));
     return {ok:temp!==null&&code!==null,partial,stale,timeUnverified,temp,code:code===null?-1:code,isDay,
       currentPrecip,currentRain,currentShowers,currentSnowfall,
       max:first.max??null,min:first.min??null,rain:first.rain??null,daily,localDate,
@@ -251,6 +276,8 @@ async function getImportantDeadlines(){
         title:cleaned,
         rawTitle:title,
         date,
+        allDay:e.isAllDay===true,
+        hasTime:e.isAllDay===false,
         color:C.red,
         source:calendarTitle||"カレンダー"
       });
@@ -350,7 +377,8 @@ function isSoccerEvent(title,calendarTitle="",notes=""){
 }
 
 function isAllDayLikeEvent(e){
-  if(e.isAllDay) return true;
+  if(e.isAllDay===true)return true;
+  if(e.isAllDay===false)return false;
 
   const start=new Date(e.startDate);
   const end=new Date(e.endDate);
@@ -392,6 +420,7 @@ async function getUpcomingNext(ann){
       out.push({
         title,
         date:d,
+        endDate:new Date(e.endDate),
         allDay:isAllDayLikeEvent(e),
         source:"予定",
         kind:"予定",
@@ -447,36 +476,14 @@ function deadlineColor(date){
   return C.sub;
 }
 
-function compactUpcomingTitle(it){
-  let v=stripLeadingSportEmoji(it.title)
-    .replace(/[\uFE0E\uFE0F\uFFFD]/g,"")
-    .trim();
-
-  if(it.combat){
-    v=v.split(/[|｜]/)[0].trim();
-
-    const compactPatterns=[
-      /^(PRIME VIDEO BOXING\s*\d+)/i,
-      /^(RIZIN LANDMARK\s*\d+)/i,
-      /^(RIZIN\.\d+)/i,
-      /^(UFC\s*\d+)/i,
-      /^(ONE SAMURAI\s*\d+)/i,
-      /^(RISE\s*\d+)/i,
-      /^(K-1 WORLD MAX\s*\d*\s*FINAL\d*)/i
-    ];
-    for(const p of compactPatterns){
-      const m=v.match(p);
-      if(m){v=m[1].trim();break;}
-    }
-  }
-
-  if(it.soccer){
-    // Only remove known source labels. Match status and class identifiers remain visible.
-    v=safeSoccerTitle(v);
-  }
-
-  return shorten(v,28);
+// Both sizes preserve status/class/year and unknown suffixes before native ellipsis.
+function eventDisplayTitle(item){
+  let title=stripLeadingSportEmoji(item.title).replace(/[\uFE0E\uFE0F\uFFFD]/g,"").trim();
+  if(item.soccer||item.combat)title=safeSoccerTitle(title);
+  if(item.combat)title=title.replace(/\bK[- ]?1\s+WORLD\s+(?:GRAND\s+PRIX|GP)\b/gi,"K-1 WGP");
+  return title;
 }
+function compactUpcomingTitle(item){return eventDisplayTitle(item);}
 
 // Unknown suffixes are kept. Important tags go first so narrow rows do not hide them.
 function safeSoccerTitle(value){
@@ -596,10 +603,60 @@ function currentWeatherInfo(weather){
   // Reference: https://open-meteo.com/en/docs (weather_code vs precipitation time aggregation).
 
   const info=weatherInfo(code);
+  if([0,1,2].includes(code)&&weather&&weather.isDay!==true&&weather.isDay!==false)
+    return [info[0],"circle.dotted",code,"day-night-unknown"];
   if(weather&&weather.isDay===false&&code===0)return [info[0],"moon.stars.fill",code,"weather-code"];
   if(weather&&weather.isDay===false&&[1,2].includes(code))return [info[0],"cloud.moon.fill",code,"weather-code"];
   return [info[0],info[1],code,"weather-code"];
 }
+function deadlineHasTime(item){return !!item&&item.hasTime===true;}
+function deadlineTimeElapsed(item,now=STATUS_NOW){return deadlineHasTime(item)&&+item.date<=+now;}
+function deadlineCountdown(item,now=STATUS_NOW){
+  const days=daysBetween(now,item.date);
+  if(!deadlineHasTime(item))return days===0?"今日締切":days===1?"明日締切":relativeDay(item.date);
+  const time=fmtTime(item.date);
+  if(deadlineTimeElapsed(item,now))return time+"締切経過";
+  return (days===0?"今日":days===1?"明日":"あと"+days+"日 ")+time+"締切";
+}
+function mediumDeadlineTitle(item){
+  if(!deadlineHasTime(item))return item.title;
+  return (deadlineTimeElapsed(item)?"【締切経過】":"【締切】")+item.title;
+}
+function agendaPresentation(item,previous=null,now=STATUS_NOW){
+  const start=item.date,end=item.endDate,hasEnd=end instanceof Date&&Number.isFinite(+end)&&+end>+start;
+  let title=eventDisplayTitle(item);
+  const ongoing=hasEnd&&!item.allDay&&+start<=+now&&+end>+now;
+  const carryAllDay=hasEnd&&item.allDay&&+start<+dayStart(now)&&+end>+now;
+  if(ongoing){
+    const fromEarlierDay=+start<+dayStart(now);
+    const endLabel=sameCalendarDay(end,now)?"終了":""+fmtDate(end)+"終了";
+    title=endLabel+"｜"+(fromEarlierDay?fmtDate(start)+"開始｜":"")+title;
+    return {day:fromEarlierDay?"継続中":"進行中",time:fmtTime(end),title};
+  }
+  if(carryAllDay){
+    // All-day end is exclusive. Show the stored span, without inventing a clock time.
+    title=fmtDate(start)+"～"+fmtDate(new Date(+end-1))+"｜"+title;
+    return {day:"継続中",time:"終日",title};
+  }
+  const previousOngoing=previous&&previous.endDate instanceof Date&&+previous.date<=+now&&+previous.endDate>+now&&
+    (!previous.allDay||+previous.date<+dayStart(now));
+  const repeated=previous&&!previousOngoing&&sameCalendarDay(previous.date,start);
+  return {day:repeated?"":timelineDay(start,now),time:fmtTime(start,item.allDay),title};
+}
+function weatherTint(code,isDay=true){
+  if([0,1,2].includes(code))return isDay===false?C.purple:isDay===true?C.orange:C.gray;
+  if([3,45,48].includes(code))return C.gray;
+  if([51,53,55,56,57,61,63,65,66,67,80,81,82].includes(code))return C.blue;
+  if([71,73,75,77,85,86].includes(code))return Color.dynamic(new Color("#32ADE6"),new Color("#64D2FF"));
+  if([95,96,99].includes(code))return C.purple;
+  return C.gray;
+}
+function mediumWeatherStamp(weather){
+  if(!weather.ok||weather.stale||weather.timeUnverified)return "";
+  return "天気 "+(weatherAsOfLabel(weather)||"時刻不明")+
+    (weather.isDay===null?"・昼夜不明":"");
+}
+
 function weatherAsOfLabel(weather){
   const m=/T(\d{2}:\d{2})/.exec(String(weather&&weather.sourceTime||""));
   return m?m[1]+"推定":"";
@@ -619,7 +676,11 @@ function nextRefresh(){
   // refreshAfterDate is a request to iOS, not a guaranteed execution time.
   if(!sameCalendarDay(RUN_NOW,now))return now;
   const minutes=numberOrNull(CFG.refreshMinutes);
-  return new Date(Math.min(now.getTime()+Math.max(1,minutes===null?15:minutes)*60000,addDays(dayStart(now),1).getTime()));
+  const boundaries=[...actionableDeadlines.filter(deadlineHasTime).map(item=>+item.date),
+    ...scheduleRows.filter(item=>!item.allDay).flatMap(item=>[+item.date,+item.endDate])]
+    .filter(time=>Number.isFinite(time)&&time>+now);
+  return new Date(Math.min(now.getTime()+Math.max(1,minutes===null?15:minutes)*60000,
+    addDays(dayStart(now),1).getTime(),...boundaries));
 }
 
 // A conservative 155pt content budget; 141pt compact mode omits only the redundant heading.
@@ -646,26 +707,36 @@ function mediumState(events,future,deadlines,weather,position,runtime){
   else if(!events.ok||!future.ok)issues.push("予定一部未取得");
   if(!deadlines.ok)issues.push("期限未取得");
   if(!position.ok)issues.push("予備地点");
+  else if(position.cityOK===false)issues.push("地名未取得");
   if(!weather.ok)issues.push("天気未取得");
   else if(weather.stale)issues.push("天気データ古い");
   else if(weather.timeUnverified)issues.push("天気時刻不明");
   else if(weather.partial)issues.push("予報一部未取得");
+  if(weather.ok&&weather.isDay===null)issues.push("昼夜不明");
   if(runtime.codeSource==="lastGood")issues.push("前回コード");
   return {issues,label:issues.length>1?"一部未取得":(issues[0]||"")};
 }
 
 const fetchedAt=new Date(RUN_NOW);
-const position=await getPosition();
-const [W,eventsData,deadlineData]=await Promise.all([getWeather(position),getEvents(),getImportantDeadlines()]);
-const ann=anniversary();
-const upcomingData=await getUpcomingNext(ann);
+// Calendar reads do not depend on GPS/geocoding and start immediately.
+const eventsPromise=getEvents(),deadlinePromise=getImportantDeadlines();
+const ann=anniversary(),upcomingPromise=getUpcomingNext(ann);
+const positionPromise=getPosition(),weatherPromise=positionPromise.then(pos=>getWeather(pos));
+const [position,W,eventsData,deadlineData,upcomingData]=await Promise.all([
+  positionPromise,weatherPromise,eventsPromise,deadlinePromise,upcomingPromise
+]);
 const upcoming7=upcomingData.items;
+// Keep the calendar-day snapshot across midnight, but do not miss a same-day
+// deadline or ending boundary crossed while native requests were outstanding.
+const renderedAt=new Date();
+const STATUS_NOW=sameCalendarDay(RUN_NOW,renderedAt)?renderedAt:RUN_NOW;
 
-const todaySchedule=eventsData.items.map(e=>{
+const todaySchedule=eventsData.items.filter(e=>isAllDayLikeEvent(e)||+new Date(e.endDate)>+STATUS_NOW).map(e=>{
   const calendarTitle=calName(e);
   return {
     title:normalize(e.title),
     date:new Date(e.startDate),
+    endDate:new Date(e.endDate),
     allDay:isAllDayLikeEvent(e),
     source:"予定",
     kind:"予定",
@@ -697,7 +768,7 @@ const shownDeadlines=actionableDeadlines.slice(0,CFG.deadlineMaxItems);
 
 const [weatherName,weatherIcon,weatherDisplayCode,weatherDisplayReason]=currentWeatherInfo(W);
 
-// MEDIUM v1.75: keep data failures visible independently of code fallback.
+// MEDIUM v1.79: preserve geometry while exposing data time and event state.
 if(resolveFamily()==="medium"){
   const M=mediumMetrics();
   const runtime=globalThis.ORE_DASH_RUNTIME||{};
@@ -743,8 +814,9 @@ if(resolveFamily()==="medium"){
     singleText(current,dataLabel,Font.semiboldSystemFont(10),C.orange);
   }else if(mediumWeatherUsable){
     singleText(current,numberLabel(W.temp)+"°",Font.semiboldSystemFont(11),C.text);current.addSpacer(4);
-    icon(current,weatherIcon,C.sub,11);current.addSpacer(4);
-    singleText(current,dailyRainLabel(W),Font.mediumSystemFont(9),W.rain===null?C.orange:C.sub);
+    icon(current,weatherIcon,weatherTint(weatherDisplayCode,W.isDay),11);current.addSpacer(4);
+    // Compact mode prioritizes the model timestamp over daily rain probability.
+    singleText(current,M.compact?mediumWeatherStamp(W):dailyRainLabel(W),Font.mediumSystemFont(M.compact?8:9),W.rain===null?C.orange:C.sub);
   }else{
     singleText(current,weatherFailureText(W),Font.mediumSystemFont(10),C.orange);
   }
@@ -757,7 +829,7 @@ if(resolveFamily()==="medium"){
       // Stack text alignment requires spacers, identically on all three lines.
       centeredRow(cell,46,12,row=>singleText(row,forecastDayLabel(day.date),Font.semiboldSystemFont(10),C.sub));
       cell.addSpacer(1);
-      centeredRow(cell,46,14,row=>icon(row,weatherInfo(day.code)[1],C.blue,14));
+      centeredRow(cell,46,14,row=>icon(row,weatherInfo(day.code)[1],weatherTint(day.code),14));
       cell.addSpacer(1);
       centeredRow(cell,46,12,row=>{
         singleText(row,numberLabel(day.max),Font.semiboldSystemFont(10),C.red);
@@ -789,9 +861,13 @@ if(resolveFamily()==="medium"){
     else if(dataLabel)singleText(head,dataLabel,Font.semiboldSystemFont(9),C.orange);
     else if(!config.runsInWidget)singleText(head,"v"+VERSION.replace("-github",""),Font.mediumSystemFont(8),C.sub);
     head.addSpacer(4);
-    singleText(head,"表示 ",Font.mediumSystemFont(8),C.sub);
-    const age=head.addDate(fetchedAt);age.applyRelativeStyle();
-    age.font=Font.mediumSystemFont(8);age.textColor=C.sub;age.lineLimit=1;age.minimumScaleFactor=1;
+    if(mediumWeatherUsable){
+      singleText(head,mediumWeatherStamp(W),Font.mediumSystemFont(8),C.sub);
+    }else{
+      singleText(head,"表示 ",Font.mediumSystemFont(8),C.sub);
+      const age=head.addDate(fetchedAt);age.applyRelativeStyle();
+      age.font=Font.mediumSystemFont(8);age.textColor=C.sub;age.lineLimit=1;age.minimumScaleFactor=1;
+    }
     card.addSpacer(M.headingGap);
   }
 
@@ -839,9 +915,8 @@ if(resolveFamily()==="medium"){
     singleText(empty,failed?"予定を取得できません":"直近の予定なし",Font.mediumSystemFont(11),failed?C.orange:C.sub);empty.addSpacer();
   }else{
     mediumRows.forEach((item,i)=>{
-      const repeated=i>0&&sameCalendarDay(mediumRows[i-1].date,item.date);
-      const dateLabel=repeated?"":(item.today?"今日":timelineDay(item.date));
-      agendaRow(dateLabel,fmtTime(item.date,item.allDay),compactUpcomingTitle(item),item.today?C.blue:C.text,item.today?C.blue:C.sub,item);
+      const display=agendaPresentation(item,i>0?mediumRows[i-1]:null);
+      agendaRow(display.day,display.time,display.title,item.today?C.blue:C.text,item.today?C.blue:C.sub,item);
     });
   }
   if(footerNeeded){
@@ -853,7 +928,7 @@ if(resolveFamily()==="medium"){
     }else{
       // Tomorrow replaces the absolute date; no duplicate countdown at the right edge.
       const urgency=deadlineColor(mediumDeadline.date);
-      agendaRow(timelineDay(mediumDeadline.date),"期限",mediumDeadline.title,urgency,urgency,null);
+      agendaRow(timelineDay(mediumDeadline.date),deadlineHasTime(mediumDeadline)?fmtTime(mediumDeadline.date):"期限",mediumDeadlineTitle(mediumDeadline),urgency,urgency,null);
     }
   }
   mw.addSpacer();
@@ -863,8 +938,8 @@ if(resolveFamily()==="medium"){
   return renderReceipt();
 }
 
-// LARGE v1.78: protect full times, left-align deadline titles, redistribute sparse-state spacing.
-// No changes to data selection, permissions, weather semantics or Medium.
+// LARGE v1.79: retain v1.78 geometry; share truthful event/weather labels with Medium.
+// Keep full time columns, left-aligned deadline text and bounded sparse-state spacing.
 const L={width:329,dayWidth:38,timeWidth:44,iconWidth:12,columnGap:3,header:54,row:15,deadlineMeta:14,deadlineTitleMax:28,deadlineGap:4,agendaHeading:16,cardPad:6,gap:4,weekHeight:68};
 const runtime=globalThis.ORE_DASH_RUNTIME||{};
 const largeState=mediumState(eventsData,upcomingData,deadlineData,W,position,runtime);
@@ -889,23 +964,10 @@ function largeTextCell(parent,width,height){
   cell.layoutHorizontally();cell.setPadding(0,0,0,0);cell.spacing=0;
   return cell;
 }
-function largeWeatherTint(code,isDay=null){
-  if(code===0||code===1||code===2)return isDay===false?C.purple:C.orange;
-  if(code===3||code===45||code===48)return C.gray;
-  if([51,53,55,56,57,61,63,65,66,67,80,81,82].includes(code))return C.blue;
-  if([71,73,75,77,85,86].includes(code))return Color.dynamic(new Color("#32ADE6"),new Color("#64D2FF"));
-  if([95,96,99].includes(code))return C.purple;
-  return C.gray;
-}
+function largeWeatherTint(code,isDay=true){return weatherTint(code,isDay);}
 function largeDeadlineDate(date){return fmtDate(date)+"（"+["日","月","火","水","木","金","土"][date.getDay()]+"）";}
-function largeDeadlineCountdown(date){const days=daysBetween(RUN_NOW,date);return days===0?"今日締切":days===1?"明日締切":relativeDay(date);}
-function largeAgendaTitle(item){
-  let title=stripLeadingSportEmoji(item.title).replace(/[\uFE0E\uFE0F\uFFFD]/g,"").trim();
-  // Preserve years, classes, unknown suffixes and status tags. No character-count cut.
-  if(item.soccer||item.combat)title=safeSoccerTitle(title);
-  if(item.combat)title=title.replace(/\bK[- ]?1\s+WORLD\s+(?:GRAND\s+PRIX|GP)\b/gi,"K-1 WGP");
-  return title;
-}
+function largeDeadlineCountdown(item){return deadlineCountdown(item);}
+function largeAgendaTitle(item){return eventDisplayTitle(item);}
 const w=new ListWidget();w.setPadding(8,14,8,14);w.backgroundColor=C.bg;w.url=calendarURL();
 // HEADER: whole date in natural order, with the weather as the right-side headline.
 const header=fixedRow(w,L.width,L.header);header.topAlignContent();
@@ -921,7 +983,7 @@ const cityBox=fixedRow(placeLine,identityWidth-49,17);
 t=singleText(cityBox,(position.ok?"":"予備 ")+position.city,Font.mediumSystemFont(9),C.sub);t.minimumScaleFactor=0.85;cityBox.addSpacer();
 if(largeWeatherUsable){
   const asOfLine=fixedRow(identity,identityWidth,13),asOf=weatherAsOfLabel(W);
-  singleText(asOfLine,asOf?"天気 "+asOf:"天気 時刻不明",Font.mediumSystemFont(9),asOf?C.sub:C.orange);asOfLine.addSpacer();
+  singleText(asOfLine,asOf?"天気 "+asOf+(W.isDay===null?"・昼夜不明":""):"天気 時刻不明",Font.mediumSystemFont(9),asOf?C.sub:C.orange);asOfLine.addSpacer();
 }
 header.addSpacer(headerGap);
 const weatherPane=header.addStack();weatherPane.layoutVertically();weatherPane.size=new Size(weatherWidth,L.header);
@@ -949,7 +1011,7 @@ if(deadlineData.ok&&largeDeadlines.length){
       meta.addSpacer(6);singleText(meta,"重要期限",Font.mediumSystemFont(9),C.sub);
       if(actionableDeadlines.length>largeDeadlines.length){meta.addSpacer(4);singleText(meta,"直近2件",Font.mediumSystemFont(8),C.sub);}
     }
-    meta.addSpacer();singleText(meta,largeDeadlineCountdown(item.date),Font.semiboldSystemFont(10),urgency);
+    meta.addSpacer();singleText(meta,largeDeadlineCountdown(item),Font.semiboldSystemFont(10),urgency);
     deadlineCard.addSpacer(1);
     const titleBox=largeTextCell(deadlineCard,contentWidth,0);
     t=titleBox.addText(item.title);t.font=Font.mediumSystemFont(11);t.textColor=C.text;t.lineLimit=2;t.minimumScaleFactor=1;
@@ -977,20 +1039,20 @@ if(!scheduleRows.length){
 }else{
   scheduleRows.forEach((item,index)=>{
     const line=largeTextCell(scheduleCard,contentWidth,agendaRowHeight);line.url=calendarURL();
-    const repeatDay=index>0&&sameCalendarDay(scheduleRows[index-1].date,item.date),dayBox=largeTextCell(line,L.dayWidth,agendaRowHeight);
-    singleText(dayBox,repeatDay?"":(item.today?"今日":timelineDay(item.date)),Font.semiboldSystemFont(10),item.today?C.blue:C.text);
+    const display=agendaPresentation(item,index>0?scheduleRows[index-1]:null),dayBox=largeTextCell(line,L.dayWidth,agendaRowHeight);
+    singleText(dayBox,display.day,Font.semiboldSystemFont(10),item.today?C.blue:C.text);
     dayBox.addSpacer();line.addSpacer(L.columnGap);
     const timeBox=largeTextCell(line,L.timeWidth,agendaRowHeight);
     // Reserve 44pt for the complete HH:mm. Equal-width digits avoid time-dependent fit.
     const timeFont=item.allDay?Font.mediumSystemFont(10):Font.mediumMonospacedSystemFont(10);
-    singleText(timeBox,fmtTime(item.date,item.allDay),timeFont,item.today?C.blue:C.sub);
+    singleText(timeBox,display.time,timeFont,item.today?C.blue:C.sub);
     timeBox.addSpacer();line.addSpacer(L.columnGap);
     const iconBox=largeTextCell(line,L.iconWidth,agendaRowHeight);
     if(item.combat)combatIcon(iconBox,item,10);else icon(iconBox,futureIconName(item),C.sub,10);
     line.addSpacer(L.columnGap);
     const titleWidth=contentWidth-L.dayWidth-L.timeWidth-L.iconWidth-L.columnGap*3,titleBox=largeTextCell(line,titleWidth,agendaRowHeight);
     // Emphasis follows timing, not sport/category. Native ellipsis is the last fallback.
-    singleText(titleBox,largeAgendaTitle(item),item.today?Font.semiboldSystemFont(12):Font.mediumSystemFont(12),C.text);titleBox.addSpacer();
+    singleText(titleBox,display.title,item.today?Font.semiboldSystemFont(12):Font.mediumSystemFont(12),C.text);titleBox.addSpacer();
   });
 }
 w.addSpacer(largeCardGap);
