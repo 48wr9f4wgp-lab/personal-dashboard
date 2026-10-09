@@ -28,3 +28,5 @@ jobs:
           node-version: "22"
       - name: Run offline regression suite
         run: node scriptable-dashboard/tests/regression.cjs
+      - name: Check Medium deadline title preservation
+        run: node scriptable-dashboard/tests/medium-deadline-title.cjs

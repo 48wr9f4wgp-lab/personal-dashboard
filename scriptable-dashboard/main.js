@@ -1,8 +1,8 @@
-// 俺専用ダッシュボード v1.79-github
+// 俺専用ダッシュボード v1.80-github
 // Remote main for Scriptable loader.
 // IMPORTANT: Script.complete() は loader 側で呼ぶ。
 
-const VERSION = "1.79-github";
+const VERSION = "1.80-github";
 
 const USER = globalThis.ORE_DASH_CONFIG || {};
 const RUN_NOW = new Date();
@@ -618,7 +618,31 @@ function deadlineCountdown(item,now=STATUS_NOW){
   if(deadlineTimeElapsed(item,now))return time+"締切経過";
   return (days===0?"今日":days===1?"明日":"あと"+days+"日 ")+time+"締切";
 }
+// Medium-only display abbreviation. Never rewrite a Calendar record or guess a date.
+// Accept only an explicit course application deadline followed by one dated session.
+// Unknown wording, extra conditions or ambiguous dates keep the original display path.
+function mediumSessionDeadlineTitle(value){
+  if(typeof value!=="string")return null;
+  const match=/^((?:【[^【】]+】\s*)*)([^：:（）()【】]+)\s*[：:]\s*受講申込期限\s*([（(])\s*([^（）()]+?)\s*([)）])$/.exec(normalize(value));
+  if(!match||(match[3]==="（"?match[5]!=="）":match[5]!==")"))return null;
+  const course=match[2].trim();
+  if(!/(?:講習|講習会|講座|研修|セミナー)$/.test(course))return null;
+  const session=match[4].trim();
+  const date=/^(?:(\d{4})\/)?(0?[1-9]|1[0-2])\/(0?[1-9]|[12]\d|3[01])\s*回$/.exec(session)||
+    /^(?:(\d{4})年)?(0?[1-9]|1[0-2])月(0?[1-9]|[12]\d|3[01])日\s*回$/.exec(session);
+  if(!date)return null;
+  // No year inference: a yearless Feb 29 is possible. Explicit invalid dates stay intact.
+  const year=date[1]===undefined?null:Number(date[1]),month=Number(date[2]),day=Number(date[3]);
+  const leap=year===null||year%400===0||(year%4===0&&year%100!==0);
+  const maxDay=[31,leap?29:28,31,30,31,30,31,31,30,31,30,31][month-1];
+  if(year===0||day>maxDay)return null;
+  // Preserve category/condition tags and full course name. Put the session/action first
+  // so exceptionally long names, not the target date or deadline state, are ellipsized.
+  return match[1]+session+" 申込〆 "+course;
+}
 function mediumDeadlineTitle(item){
+  const compact=mediumSessionDeadlineTitle(item.title);
+  if(compact!==null)return (deadlineTimeElapsed(item)?"【締切経過】":"")+compact;
   if(!deadlineHasTime(item))return item.title;
   return (deadlineTimeElapsed(item)?"【締切経過】":"【締切】")+item.title;
 }

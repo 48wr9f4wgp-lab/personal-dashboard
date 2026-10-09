@@ -15,10 +15,18 @@ Remote main:
 
 ## Current candidate
 
-- Dashboard: `1.79-github`
+- Dashboard: `1.80-github`
 - Loader: `1.4`
 - Target layouts: Medium (calendar first) and Large (weather overview)
 - Preserve local `ORE_DASH_CONFIG` when updating the loader. Do not copy personal settings into this repository.
+
+### v1.80: preserve the target session in Medium deadlines
+- Only the Medium deadline title formatter changes; the Medium/Large renderers, row widths/heights, deadline times, data selection, Loader and device configuration are unchanged.
+- For the explicit template '<course>: 受講申込期限 (<dated session>回)', display '<dated session>回 申込〆 <course>'. The original course name and date text are retained. The session/action precedes the course so a very long name cannot push the session off the row.
+- Leading condition/status tags remain first. Timed deadlines retain their existing time column and elapsed deadlines retain the leading 【締切経過】 warning. All-day entries never gain a guessed clock time.
+- Ambiguous dates, multiple sessions, extra conditions/suffixes and other deadline types stay on the original unabridged path. No general replacement or character-count truncation is applied.
+- Existing 425-case regression suite is unchanged. A separate 59-case focused suite checks exact formatters, preservation/fallback cases and hash-guards the two renderers and Loader.
+- Native iPhone fitting is still required for the new text. Small screens/very long names can still use native ellipsis after the session and action; no zero-truncation claim is made.
 
 ### v1.79: semantic audit repairs
 - Timed deadlines retain the Calendar entry's start time and explicit all-day flag. The exact time is shown, with a distinct elapsed state. All-day entries never gain an invented time; no submission/completion state is inferred.
@@ -75,6 +83,7 @@ Run from the repository root:
 
 ```sh
 node scriptable-dashboard/tests/regression.cjs
+node scriptable-dashboard/tests/medium-deadline-title.cjs
 ```
 
 The tests use synthetic weather, location, Calendar and filesystem data, without contacting services or reading personal records. They cover both layouts, light/dark source warnings, calendar/date boundaries, loader recovery and render-completion checks. A JSON result is written to `scriptable-dashboard/tests/test-results.json` and is not committed.
