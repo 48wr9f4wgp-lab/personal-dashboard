@@ -53,7 +53,7 @@ function fixtures(now=NOW) {
 function env(opts={}) {
   const now=opts.now??NOW;
   let clockNow=now;
-  const record={widgets:[],published:[],presented:[],complete:0,logs:[],requests:[],writes:[],calendarReads:[],calendarWrites:0};
+  const record={widgets:[],published:[],presented:[],complete:0,logs:[],requests:[],writes:[],calendarReads:[],calendarWrites:0,timers:[]};
   const data=opts.data === undefined ? weatherJSON(now) : opts.data;
   const events=opts.events===undefined ? fixtures(now) : opts.events;
   class Clock extends Date { constructor(...args){super(...(args.length?args:[clockNow]));} static now(){return clockNow;} }
@@ -112,8 +112,22 @@ function env(opts={}) {
   const mock={Date:Clock,Color,Size,Rect,ListWidget,Font,DateFormatter,Request,DrawContext,
     Device:{screenSize:()=>({width:opts.screenWidth||393,height:852})},
     SFSymbol:{named:name=>opts.missingSymbols?.includes(name)?null:({image:{symbol:name},applyFont(){}})},
-    Location:{setAccuracyToThreeKilometers(){},current:async()=>{if(opts.afterLocationNow!==undefined)clockNow=opts.afterLocationNow;if(opts.locationError)throw new Error('Denied');return {latitude:35.68,longitude:139.76};},
-      reverseGeocode:async()=>[{locality:'テスト市'}]},
+    Timer:opts.noTimer?undefined:{schedule:(ms,repeats,callback)=>{
+      assert.equal(repeats,false);if(opts.timerError)throw new Error('Mock Timer unavailable');
+      const state={ms,invalidated:false,fired:false};record.timers.push(state);
+      const handle=setTimeout(()=>{state.fired=true;callback();},Math.max(0,ms*(opts.timerScale??1)));
+      return {invalidate(){clearTimeout(handle);state.invalidated=true;}};
+    }},
+    Location:{setAccuracyToThreeKilometers(){},current:async()=>{
+      if(opts.afterLocationNow!==undefined)clockNow=opts.afterLocationNow;
+      if(opts.locationError)throw new Error('Denied');
+      if(opts.locationNever)return new Promise(resolve=>{record.releaseLocation=resolve;});
+      return opts.locationResult===undefined?{latitude:35.68,longitude:139.76}:opts.locationResult;
+    },reverseGeocode:async()=>{
+      if(opts.geocodeError)throw new Error('Geocode unavailable');
+      if(opts.geocodeNever)return new Promise(resolve=>{record.releaseGeocode=resolve;});
+      return opts.geocodeResult===undefined?[{locality:'テスト市'}]:opts.geocodeResult;
+    }},
     CalendarEvent:{today:async()=>{record.calendarReads.push({method:'today'});if(opts.todayError)throw new Error('Denied');return events.filter(e=>+e.startDate<=clockNow && dateKey(e.endDate)>=dateKey(new Date(clockNow)) || dateKey(e.startDate)===dateKey(new Date(clockNow)));},
       between:async(start,end)=>{
         record.calendarReads.push({method:'between',start:+start,end:+end});
@@ -332,7 +346,7 @@ async function main(){
   await test('Long deadlines retained in 2-line UI nodes',async()=>{
     const events=fixtures();for(const e of events)if(e.title.includes('期限'))e.title+=' 検証用の長いタイトル'.repeat(4);
     const r=await run(source,{events});const ns=nodes(card(r.widget,'重要期限'),'text').filter(n=>n.text.includes('検証用'));
-    assert.equal(ns.length,2);assert.ok(ns.every(n=>n.lineLimit===2)); // No assertion of iOS rendered height.
+    assert.equal(ns.length,2);assert.ok(ns.every(n=>n.lineLimit===2));
   });
   await test('Weekly missing field shows warning rather than six invented forecasts',async()=>{
     const data=weatherJSON();data.daily.weather_code[5]=null;
@@ -538,9 +552,11 @@ async function main(){
     });
   }
 
-  await test('protected data and Medium prefix unchanged except version and blank lines',()=>{
-    const prefix=source.slice(0,source.indexOf('// LARGE')).replace(/1\.(76|77|78)-github/g,'VERSION').replace(/\n{3,}/g,'\n\n');
-    assert.equal(crypto.createHash('sha256').update(prefix).digest('hex'),'cea68b421b42c5b8994426eaff67d8db5202464374135ba7dc65871adbe629de');
+  await test('v179 established geometry and Loader unchanged',()=>{
+    const metrics=source.slice(source.indexOf('function mediumMetrics(){'),source.indexOf('function singleText('));
+    assert.equal(crypto.createHash('sha256').update(metrics).digest('hex'),"26ec768e6a3d47fb0a37b96dcffc2debd2a0a4be385440f1db617bbcf6e04696");
+    assert.equal(/const L=([^;]+);/.exec(source)[1],"{width:329,dayWidth:38,timeWidth:44,iconWidth:12,columnGap:3,header:54,row:15,deadlineMeta:14,deadlineTitleMax:28,deadlineGap:4,agendaHeading:16,cardPad:6,gap:4,weekHeight:68}");
+    assert.equal(gitHash(loader),'b798fef13c2daa30df5f6b0b202c5d63551615a1');
   });
   for(const count of [0,1,2])await test('v177 deadline count '+count+' keeps all six appointments',async()=>{
     const items=fixtures();let seen=0;
@@ -619,6 +635,138 @@ async function main(){
     const tt=texts(r.widget);assert.ok(tt.includes('前回コード'));assert.ok(tt.includes('天気を取得できません'));
     assert.ok(tt.includes('取得失敗'));assert.ok(tt.includes('一部取得失敗'));assert.equal(r.record.calendarWrites,0);
   });
+
+  // v1.79: semantic acceptance tests use only synthetic records and providers.
+  const clock=(day,hour,minute=0)=>Date.parse('2030-01-'+String(day).padStart(2,'0')+'T'+String(hour).padStart(2,'0')+':'+String(minute).padStart(2,'0')+':00+09:00');
+  const testEvent=(title,start,end,allDay=false)=>({title,notes:'',calendar:{title:'Synthetic'},startDate:new Date(start),endDate:new Date(end),isAllDay:allDay});
+  for(const family of ['medium','large'])for(const dark of [false,true]){
+    for(const [offset,hour,allDay] of [[0,12,false],[0,18,false],[1,12,false],[5,12,false],[0,18,true]]){
+      await test('v179 deadline time and elapsed state '+family+' '+dark+' '+[offset,hour,allDay],async()=>{
+        const now=clock(30,hour),due=clock(30,17)+offset*86400000;
+        const e=testEvent('合成申込期限',allDay?clock(30,0):due,allDay?clock(31,0):due+900000,allDay);
+        const r=await run(source,{family,dark,now,events:[e]}),tt=texts(r.widget);
+        if(allDay){assert.ok(!tt.some(t=>t.includes('17:00')));assert.ok(!tt.some(t=>t.includes('締切経過')));}
+        else{
+          assert.ok(tt.some(t=>t.includes('17:00')),'exact deadline time absent');
+          assert.equal(tt.some(t=>t.includes('締切経過')),hour===18&&offset===0);
+          if(family==='large'&&hour!==18)assert.ok(tt.some(t=>t.includes('締切')&&t.includes('17:00')));
+        }
+        assert.equal(r.record.calendarWrites,0);assert.equal(e.title,'合成申込期限');
+      });
+    }
+    await test('v179 midnight timed deadline is not inferred all-day '+family+' '+dark,async()=>{
+      const r=await run(source,{family,dark,now:clock(30,12),events:[testEvent('合成提出期限',clock(31,0),clock(31,1),false)]});
+      assert.ok(texts(r.widget).some(t=>t.includes('00:00')));
+    });
+    for(const [label,start,end,now,allDay,day,time,prefix] of [
+      ['overnight',clock(29,23),clock(30,1),clock(30,0,30),false,'継続中','01:00','終了｜1/29開始｜'],
+      ['same day',clock(30,11),clock(30,13),clock(30,12),false,'進行中','13:00','終了｜'],
+      ['ends tomorrow',clock(30,11),clock(31,1),clock(30,12),false,'進行中','01:00','1/31終了｜'],
+      ['all-day span',clock(29,0),clock(31,0),clock(30,12),true,'継続中','終日','1/29～1/30｜'],
+      ['timed full day',clock(30,0),clock(31,0),clock(30,12),false,'進行中','00:00','1/31終了｜']
+    ])await test('v179 ongoing '+label+' '+family+' '+dark,async()=>{
+      const r=await run(source,{family,dark,now,events:[testEvent('合成夜間予定',start,end,allDay)]}),tt=texts(r.widget);
+      assert.ok(tt.includes(day));assert.ok(tt.includes(time));assert.ok(tt.includes(prefix+'合成夜間予定'));
+      assert.ok(!tt.includes('23:00'));assert.equal(tt.filter(t=>t.includes('合成夜間予定')).length,1);
+    });
+    await test('v179 ended overnight event absent '+family+' '+dark,async()=>{
+      const r=await run(source,{family,dark,now:clock(30,2),events:[testEvent('合成終了済',clock(29,23),clock(30,1))]});
+      assert.ok(!texts(r.widget).some(t=>t.includes('合成終了済')));
+    });
+    for(const [title,expected] of [
+      ['UFC 999 | 延期','【延期】UFC 999'],
+      ['UFC 999（順延） | Unknown class 2027','【順延】UFC 999 | Unknown class 2027'],
+      ['K-1 WORLD GP 2027 -90kg 予選（延期） | 未知補足','【延期】K-1 WGP 2027 -90kg 予選 | 未知補足']
+    ])await test('v179 protected event labels '+family+' '+dark+' '+title,async()=>{
+      const e=testEvent(title,clock(31,14),clock(31,16));
+      const r=await run(source,{family,dark,events:[e]});assert.ok(texts(r.widget).includes(expected));assert.equal(e.title,title);
+    });
+  }
+  for(const [name,opts,city,lat] of [
+    ['resolved',{},'テスト市',35.68],
+    ['sub-locality',{geocodeResult:[{subLocality:'合成地区'}]},'合成地区',35.68],
+    ['geocode rejection',{geocodeError:true},'現在地・地名不明',35.68],
+    ['geocode empty',{geocodeResult:[]},'現在地・地名不明',35.68],
+    ['geocode missing field',{geocodeResult:[{}]},'現在地・地名不明',35.68],
+    ['geocode invalid field',{geocodeResult:[{locality:123}]},'現在地・地名不明',35.68],
+    ['denied',{locationError:true},'予備 設定都市A',36.0],
+    ['invalid coordinates',{locationResult:{latitude:999,longitude:1}},'予備 設定都市A',36.0]
+  ])await test('v179 coordinates and city are coherent '+name,async()=>{
+    const r=await run(source,{...opts,cfg:{fallbackCity:'設定都市A',fallbackLat:36,fallbackLon:140}}),tt=texts(r.widget);
+    assert.ok(tt.includes(city));
+    const url=r.record.requests.find(t=>t.includes('api.open-meteo.com'));
+    assert.equal(new URL(url).searchParams.get('latitude'),String(lat));
+    if(city==='現在地・地名不明')assert.ok(!tt.includes('設定都市A'));
+    assert.ok(r.record.timers.every(t=>t.invalidated));
+  });
+  for(const kind of ['locationNever','geocodeNever'])await test('v179 bounded location late settlement '+kind,async()=>{
+    const opts={[kind]:true,timerScale:0.002};const e=env(opts);
+    const promise=new vm.Script('(async function(){\n'+source+'\n})()').runInContext(e.context,{timeout:2000});
+    // Calendar begins before either native location operation has resolved.
+    assert.ok(e.record.calendarReads.length>=3);
+    await Promise.race([promise,new Promise((_,reject)=>{const timer=setTimeout(()=>reject(new Error('await did not complete')),500);timer.unref();})]);
+    assert.equal(e.record.published.length,1);
+    const before=JSON.stringify(plain(e.record.published[0]));
+    if(kind==='locationNever')e.record.releaseLocation({latitude:1,longitude:2});
+    else e.record.releaseGeocode([{locality:'Late incorrect label'}]);
+    await new Promise(resolve=>setTimeout(resolve,10));
+    assert.equal(e.record.published.length,1);assert.equal(JSON.stringify(plain(e.record.published[0])),before);
+    assert.ok(e.record.timers.every(t=>t.invalidated));
+  });
+  for(const flag of ['noTimer','timerError'])await test('v179 Timer unavailable falls back without hanging '+flag,async()=>{
+    const r=await run(source,{[flag]:true});assert.equal(r.record.published.length,1);assert.ok(texts(r.widget).some(t=>t.startsWith('予備 ')));
+  });
+  await test('v179 invalid fallback coordinates do not send a weather request',async()=>{
+    const r=await run(source,{locationError:true,cfg:{fallbackLat:'not-coordinate',fallbackLon:999}});
+    assert.ok(texts(r.widget).includes('天気を取得できません'));assert.equal(r.record.requests.filter(x=>x.includes('api.open-meteo.com')).length,0);
+  });
+  for(const dark of [false,true])for(const width of [320,393]){
+    await test('v179 Medium model timestamp not fresh render age '+dark+' '+width,async()=>{
+      const data=weatherJSON();data.current.time='2030-01-30T10:40';
+      const r=await run(source,{family:'medium',dark,screenWidth:width,data});
+      assert.ok(texts(r.widget).includes('天気 10:40推定'));
+      assert.ok(!texts(r.widget).includes('表示 '));
+      assert.equal(nodes(r.widget,'date').length,0);
+    });
+    await test('v179 Medium semantic forecast colors '+dark+' '+width,async()=>{
+      const data=weatherJSON();data.daily.weather_code=[3,0,3,61,0,0,0];
+      const r=await run(source,{family:'medium',dark,screenWidth:width,data});
+      const images=nodes(r.widget,'image').filter(n=>n.imageSize?.width===14);
+      assert.equal(images.length,3);
+      assert.deepEqual(images.map(n=>n.tintColor.hex),dark?['#FF9F0A','#8E8E93','#0A84FF']:['#A64B00','#8E8E93','#0066CC']);
+    });
+  }
+  for(const family of ['medium','large'])for(const code of [0,1,2])await test('v179 unknown day/night is neutral '+family+' '+code,async()=>{
+    const data=weatherJSON();data.current.is_day=null;data.current.weather_code=code;
+    const r=await run(source,{family,data}),ns=nodes(r.widget,'image');
+    const hero=ns.find(n=>n.imageSize?.width===(family==='large'?25:11));
+    assert.equal(hero.image.symbol,'circle.dotted');assert.equal(hero.tintColor.hex,'#8E8E93');
+    assert.ok(texts(r.widget).some(t=>t.includes('昼夜不明')));
+  });
+  for(const family of ['medium','large'])await test('v179 refresh requested at upcoming deadline boundary '+family,async()=>{
+    const now=clock(30,16,59),due=clock(30,17);
+    const r=await run(source,{family,now,events:[testEvent('合成提出期限',due,due+900000)]});
+    assert.equal(+r.widget.refreshAfterDate,due);
+  });
+  await test('v179 read-only Calendar contract',()=>{
+    assert.ok(!/CalendarEvent\s*\.\s*(?:remove|save|presentCreate|presentEdit)/.test(source));
+    assert.ok(!/new\s+CalendarEvent\s*\(/.test(source));
+  });
+
+  for(const family of ['medium','large']){
+    await test('v179 deadline crossing during load '+family,async()=>{
+      const r=await run(source,{family,now:clock(30,16,59),afterLocationNow:clock(30,17,1),events:[testEvent('合成締切',clock(30,17),clock(30,17,15))]});
+      assert.ok(texts(r.widget).some(t=>t.includes('締切経過')));
+    });
+    await test('v179 ended during load omitted '+family,async()=>{
+      const r=await run(source,{family,now:clock(30,16,59),afterLocationNow:clock(30,17,1),events:[testEvent('合成終了境界',clock(30,16),clock(30,17))]});
+      assert.ok(!texts(r.widget).some(t=>t.includes('合成終了境界')));
+    });
+    await test('v179 started during load uses end time '+family,async()=>{
+      const r=await run(source,{family,now:clock(30,16,59),afterLocationNow:clock(30,17,1),events:[testEvent('合成開始境界',clock(30,17),clock(30,18))]});
+      const tt=texts(r.widget);assert.ok(tt.includes('進行中'));assert.ok(tt.includes('18:00'));assert.ok(!tt.includes('17:00'));
+    });
+  }
 
   const failed=results.filter(r=>r.status==='FAIL');
   const report={source:mainPath,mainBlob:gitHash(source),loaderBlob:gitHash(loader),environment:process.version,
