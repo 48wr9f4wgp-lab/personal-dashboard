@@ -316,7 +316,7 @@ async function main(){
       assert.ok(find('くもり',20),'weather condition not prominent');
       assert.ok(find('22°',22),'temperature missing');
       assert.ok(nodes(r.widget,'image').some(n=>n.image?.symbol==='cloud.fill'&&n.imageSize?.width===25),'25pt weather hero icon missing');
-      assert.ok(nodes(r.widget,'stack').some(n=>n.size?.width===329&&n.size?.height===54),'54pt header not found');
+      assert.ok(nodes(r.widget,'stack').some(n=>n.size?.width===310&&n.size?.height===54),'responsive 54pt header not found');
       assert.ok(card(r.widget,'予定'));assert.ok(card(r.widget,'重要期限'));assert.ok(card(r.widget,'週間天気'));
     });
   }
@@ -343,9 +343,9 @@ async function main(){
   await test('Empty Calendar produces empty states, not fake schedules',async()=>{
     const r=await run(source,{events:[]});const tt=texts(r.widget);assert.ok(tt.includes('直近の予定なし'));assert.ok(tt.includes('30日以内の重要期限なし'));
   });
-  await test('Long deadlines retained in 2-line UI nodes',async()=>{
+  await test('Long deadlines retained in 2-line UI nodes on spacious Large',async()=>{
     const events=fixtures();for(const e of events)if(e.title.includes('期限'))e.title+=' 検証用の長いタイトル'.repeat(4);
-    const r=await run(source,{events});const ns=nodes(card(r.widget,'重要期限'),'text').filter(n=>n.text.includes('検証用'));
+    const r=await run(source,{events,screenWidth:430});const ns=nodes(card(r.widget,'重要期限'),'text').filter(n=>n.text.includes('検証用'));
     assert.equal(ns.length,2);assert.ok(ns.every(n=>n.lineLimit===2));
   });
   await test('Weekly missing field shows warning rather than six invented forecasts',async()=>{
@@ -515,10 +515,10 @@ async function main(){
       if(offset<=1)assert.equal(tt.filter(t=>t===(offset===0?'今日締切':'明日締切')).length,1);
       else assert.ok(tt.includes('あと5日'));
     });
-    await test('v177 long two-line deadlines and six schedules survive '+dark,async()=>{
+    await test('v181 spacious Large keeps two-line deadlines and six schedules '+dark,async()=>{
       const events=fixtures();
       for(const e of events)if(/テスト.*期限/.test(e.title))e.title+=' '+('長文の期限タイトル・条件確認 '.repeat(12));
-      const r=await run(source,{dark,events}),dd=nodes(card(r.widget,'重要期限'),'text').filter(n=>n.text.includes('長文の期限タイトル'));
+      const r=await run(source,{dark,events,screenWidth:430}),dd=nodes(card(r.widget,'重要期限'),'text').filter(n=>n.text.includes('長文の期限タイトル'));
       assert.equal(dd.length,2);assert.ok(dd.every(n=>n.lineLimit===2&&n.minimumScaleFactor===1));
       assert.ok(dd.every(n=>n.text.length>100));
       assert.equal(texts(card(r.widget,'予定')).filter(t=>/^Schedule |^UFC |^PRIME /.test(t)).length,6);
@@ -552,10 +552,11 @@ async function main(){
     });
   }
 
-  await test('v179 established geometry and Loader unchanged',()=>{
+  await test('v181 preserves Medium metrics and Loader, with responsive Large metrics',()=>{
     const metrics=source.slice(source.indexOf('function mediumMetrics(){'),source.indexOf('function singleText('));
     assert.equal(crypto.createHash('sha256').update(metrics).digest('hex'),"26ec768e6a3d47fb0a37b96dcffc2debd2a0a4be385440f1db617bbcf6e04696");
-    assert.equal(/const L=([^;]+);/.exec(source)[1],"{width:329,dayWidth:38,timeWidth:44,iconWidth:12,columnGap:3,header:54,row:15,deadlineMeta:14,deadlineTitleMax:28,deadlineGap:4,agendaHeading:16,cardPad:6,gap:4,weekHeight:68}");
+    assert.equal(/const L=([^;]+);/.exec(source)[1],"largeMetrics()");
+    assert.ok(source.includes('width:Math.min(329,mediumMetrics().width-8),dayWidth:38,timeWidth:44'));
     assert.equal(gitHash(loader),'b798fef13c2daa30df5f6b0b202c5d63551615a1');
   });
   for(const count of [0,1,2])await test('v177 deadline count '+count+' keeps all six appointments',async()=>{
@@ -590,11 +591,14 @@ async function main(){
         assert.equal(n.lineLimit,1);assert.equal(n.minimumScaleFactor,1,'do not make times smaller to fit');
         if(n.text!=='終日')assert.equal(n.font.name,'mediumMonospacedSystemFont');
         const row=parents.find(p=>p.children.includes(cell));
-        assert.equal(row.size.width,305);assert.deepEqual(plain(row.padding),[0,0,0,0]);
+        assert.equal(row.size.width,286);assert.deepEqual(plain(row.padding),[0,0,0,0]);
         const sum=row.children.reduce((v,c)=>v+(c.kind==='stack'?c.size.width:c.length),0);
         assert.equal(sum,row.size.width,'fixed columns must fit without stealing time width');
         assert.equal(row.children[0].size.width,38,'date width protected');
-        assert.equal(row.size.height,count===0?23:count===1?21:15);
+        assert.ok(row.size.height>=15&&row.size.height<=34,'adaptive rows stay in bounded boxes');
+        const title=nodes(row,'text').find(t=>t.text.startsWith('Appointment '));
+        assert.ok(title&&[1,2].includes(title.lineLimit));
+        if(title.lineLimit===2)assert.ok(row.size.height>=30,'a two-line title cannot occupy a single-line row');
       }
       const log=r.record.logs.find(x=>x.includes('stateBudgetBound='));
       assert.ok(log,'state-specific height bound must be recorded');
@@ -602,9 +606,9 @@ async function main(){
       assert.equal(nodes(card(r.widget,'週間天気'),'image').length,6);
     });
   }
-  for(const dark of [false,true])await test('v178 deadline titles lead from the content edge '+dark,async()=>{
+  for(const dark of [false,true])await test('v181 spacious two-line deadline titles lead from the content edge '+dark,async()=>{
     const events=fixtures();for(const e of events)if(/テスト.*期限/.test(e.title))e.title+=' 長い条件の確認'.repeat(20);
-    const r=await run(source,{dark,events});const deadline=card(r.widget,'重要期限');
+    const r=await run(source,{dark,events,screenWidth:430});const deadline=card(r.widget,'重要期限');
     const parents=nodes(deadline,'stack');
     const labels=nodes(deadline,'text').filter(n=>n.text.includes('長い条件'));
     assert.equal(labels.length,2);
@@ -614,18 +618,19 @@ async function main(){
       assert.equal(cell.children.length,2,'no leading spacer may indent the deadline');
       assert.equal(cell.layout,'horizontal');assert.deepEqual(plain(cell.padding),[0,0,0,0]);
       assert.equal(cell.size.width,305);assert.equal(n.lineLimit,2);assert.equal(n.minimumScaleFactor,1);
+      assert.equal(cell.size.height,29,'two-line deadline height is explicitly bounded');
     }
   });
-  for(const count of [0,1,2])await test('v178 bounded spacing redistributes sparse-state whitespace '+count,async()=>{
+  for(const count of [0,1,2])await test('v181 bounded section spacing keeps six schedules '+count,async()=>{
     const items=fixtures();let kept=0;
     const events=items.filter(e=>!/テスト.*期限/.test(e.title)||kept++<count);
     const r=await run(source,{events});const d=card(r.widget,'重要期限'),s=card(r.widget,'予定');
     const agenda=nodes(r.widget,'stack').find(n=>n.children.includes(d)&&n.children.includes(s));
     const between=agenda.children.slice(agenda.children.indexOf(d)+1,agenda.children.indexOf(s));
-    assert.equal(between.length,count<2?1:0);
-    if(count<2)assert.equal(between[0].length,4);
+    assert.equal(between.length,1);
+    assert.equal(between[0].length,6);
     const gaps=r.widget.children.filter(n=>n.kind==='spacer'&&n.length!==null);
-    assert.deepEqual(gaps.map(n=>n.length),count<2?[6,6]:[4,4]);
+    assert.deepEqual(gaps.map(n=>n.length),[4,4]);
     const log=r.record.logs.find(x=>x.includes('stateBudgetBound='));
     assert.ok(+/stateBudgetBound=(\d+)pt/.exec(log)[1]<=354);
     assert.equal(nodes(s,'text').filter(n=>/^Schedule |^UFC |^PRIME /.test(n.text)).length,6);
@@ -659,14 +664,15 @@ async function main(){
       assert.ok(texts(r.widget).some(t=>t.includes('00:00')));
     });
     for(const [label,start,end,now,allDay,day,time,prefix] of [
-      ['overnight',clock(29,23),clock(30,1),clock(30,0,30),false,'継続中','01:00','終了｜1/29開始｜'],
-      ['same day',clock(30,11),clock(30,13),clock(30,12),false,'進行中','13:00','終了｜'],
-      ['ends tomorrow',clock(30,11),clock(31,1),clock(30,12),false,'進行中','01:00','1/31終了｜'],
+      ['overnight',clock(29,23),clock(30,1),clock(30,0,30),false,'開催中','01:00','1/29開始｜'],
+      ['same day',clock(30,11),clock(30,13),clock(30,12),false,'開催中','13:00',''],
+      ['ends tomorrow',clock(30,11),clock(31,1),clock(30,12),false,'開催中','01:00','1/31まで｜'],
       ['all-day span',clock(29,0),clock(31,0),clock(30,12),true,'継続中','終日','1/29～1/30｜'],
-      ['timed full day',clock(30,0),clock(31,0),clock(30,12),false,'進行中','00:00','1/31終了｜']
-    ])await test('v179 ongoing '+label+' '+family+' '+dark,async()=>{
+      ['timed full day',clock(30,0),clock(31,0),clock(30,12),false,'開催中','00:00','1/31まで｜']
+    ])await test('v181 ongoing '+label+' '+family+' '+dark,async()=>{
       const r=await run(source,{family,dark,now,events:[testEvent('合成夜間予定',start,end,allDay)]}),tt=texts(r.widget);
       assert.ok(tt.includes(day));assert.ok(tt.includes(time));assert.ok(tt.includes(prefix+'合成夜間予定'));
+      if(!allDay){assert.ok(tt.includes('まで'));assert.ok(!tt.some(t=>t.includes('終了')));}
       assert.ok(!tt.includes('23:00'));assert.equal(tt.filter(t=>t.includes('合成夜間予定')).length,1);
     });
     await test('v179 ended overnight event absent '+family+' '+dark,async()=>{
@@ -689,11 +695,12 @@ async function main(){
     ['geocode empty',{geocodeResult:[]},'現在地・地名不明',35.68],
     ['geocode missing field',{geocodeResult:[{}]},'現在地・地名不明',35.68],
     ['geocode invalid field',{geocodeResult:[{locality:123}]},'現在地・地名不明',35.68],
-    ['denied',{locationError:true},'予備 設定都市A',36.0],
-    ['invalid coordinates',{locationResult:{latitude:999,longitude:1}},'予備 設定都市A',36.0]
+    ['denied',{locationError:true},'設定都市A',36.0],
+    ['invalid coordinates',{locationResult:{latitude:999,longitude:1}},'設定都市A',36.0]
   ])await test('v179 coordinates and city are coherent '+name,async()=>{
     const r=await run(source,{...opts,cfg:{fallbackCity:'設定都市A',fallbackLat:36,fallbackLon:140}}),tt=texts(r.widget);
     assert.ok(tt.includes(city));
+    if(city==='設定都市A')assert.ok(tt.includes('〈代替地点〉'));
     const url=r.record.requests.find(t=>t.includes('api.open-meteo.com'));
     assert.equal(new URL(url).searchParams.get('latitude'),String(lat));
     if(city==='現在地・地名不明')assert.ok(!tt.includes('設定都市A'));
@@ -714,7 +721,7 @@ async function main(){
     assert.ok(e.record.timers.every(t=>t.invalidated));
   });
   for(const flag of ['noTimer','timerError'])await test('v179 Timer unavailable falls back without hanging '+flag,async()=>{
-    const r=await run(source,{[flag]:true});assert.equal(r.record.published.length,1);assert.ok(texts(r.widget).some(t=>t.startsWith('予備 ')));
+    const r=await run(source,{[flag]:true});assert.equal(r.record.published.length,1);assert.ok(texts(r.widget).includes('〈代替地点〉'));
   });
   await test('v179 invalid fallback coordinates do not send a weather request',async()=>{
     const r=await run(source,{locationError:true,cfg:{fallbackLat:'not-coordinate',fallbackLon:999}});
@@ -764,7 +771,7 @@ async function main(){
     });
     await test('v179 started during load uses end time '+family,async()=>{
       const r=await run(source,{family,now:clock(30,16,59),afterLocationNow:clock(30,17,1),events:[testEvent('合成開始境界',clock(30,17),clock(30,18))]});
-      const tt=texts(r.widget);assert.ok(tt.includes('進行中'));assert.ok(tt.includes('18:00'));assert.ok(!tt.includes('17:00'));
+      const tt=texts(r.widget);assert.ok(tt.includes('開催中'));assert.ok(tt.includes('18:00'));assert.ok(tt.includes('まで'));assert.ok(!tt.includes('17:00'));
     });
   }
 

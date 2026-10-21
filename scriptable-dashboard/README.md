@@ -15,10 +15,19 @@ Remote main:
 
 ## Current candidate
 
-- Dashboard: `1.80-github`
+- Dashboard: `1.81-github`
 - Loader: `1.4`
 - Target layouts: Medium (calendar first) and Large (weather overview)
 - Preserve local `ORE_DASH_CONFIG` when updating the loader. Do not copy personal settings into this repository.
+
+### v1.81: repair the display audit findings
+- Explicit unannounced start-time markers display `未定`, never an invented `00:00` or ongoing state. A true midnight event remains timed. Today's placeholder remains visible for that day; Calendar records are never edited.
+- Ongoing timed events display `開催中` with the recorded end clock and `まで`. Original start dates and a later end date remain visible when relevant; the title no longer begins with a misleading bare `終了`.
+- Explicit internal deadline markers receive `内部目標` and a target countdown, while application deadlines receive `申込締切`. Neither label claims completion or changes the stored time.
+- Large moves the weather city into the weather card and labels fallback coordinates with a separately protected `〈代替地点〉` marker. Weather errors show it in the weather pane. Actual coordinates, local configuration and Medium's compact location layout are unchanged.
+- Large uses fixed-height one/two-line labels and redistributes remaining space to long agenda titles and row spacing, with a visible gap between deadlines and schedules. Narrow layouts retain complete 44pt clock columns. The selected design caps are 311/338/354/382pt by screen-width tier; these are not native frame measurements.
+- Up to six schedules, two deadlines and six forecast days remain. In a dense narrow layout, not every long title can receive two lines: native ellipsis is still the bounded fallback. Large date size, red/blue forecast temperatures, Medium dimensions and Loader 1.4 are preserved.
+- Offline display cases use synthetic events and locations. They check explicit/ambiguous time markers, internal/external deadlines, location disclosure, Light/Dark and four widths. No user screenshots, Calendar contents or private settings are committed. Real iPhone glyph fitting and iOS refresh timing still require device confirmation.
 
 ### v1.80: preserve the target session in Medium deadlines
 - Only the Medium deadline title formatter changes; the Medium/Large renderers, row widths/heights, deadline times, data selection, Loader and device configuration are unchanged.
@@ -84,6 +93,7 @@ Run from the repository root:
 ```sh
 node scriptable-dashboard/tests/regression.cjs
 node scriptable-dashboard/tests/medium-deadline-title.cjs
+node scriptable-dashboard/tests/display-audit.cjs
 ```
 
 The tests use synthetic weather, location, Calendar and filesystem data, without contacting services or reading personal records. They cover both layouts, light/dark source warnings, calendar/date boundaries, loader recovery and render-completion checks. A JSON result is written to `scriptable-dashboard/tests/test-results.json` and is not committed.
