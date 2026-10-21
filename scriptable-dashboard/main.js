@@ -1,8 +1,8 @@
-// 俺専用ダッシュボード v1.80-github
+// 俺専用ダッシュボード v1.81-github
 // Remote main for Scriptable loader.
 // IMPORTANT: Script.complete() は loader 側で呼ぶ。
 
-const VERSION = "1.80-github";
+const VERSION = "1.81-github";
 
 const USER = globalThis.ORE_DASH_CONFIG || {};
 const RUN_NOW = new Date();
@@ -210,7 +210,7 @@ async function getEvents(){
       .filter(e=>!isHolidayCalendarTitle(calName(e)))
       .filter(e=>!isInactiveTitle(e.title))
       .filter(e=>!isDeadlineEvent(e))
-      .filter(e=>isAllDayLikeEvent(e)||e.endDate>now)
+      .filter(e=>isAllDayLikeEvent(e)||e.endDate>now||(hasUnannouncedTime(e)&&sameCalendarDay(new Date(e.startDate),now)))
       .sort((a,b)=>{
         const aa=isAllDayLikeEvent(a),bb=isAllDayLikeEvent(b);
         if(aa&&!bb)return -1;
@@ -610,13 +610,19 @@ function currentWeatherInfo(weather){
   return [info[0],info[1],code,"weather-code"];
 }
 function deadlineHasTime(item){return !!item&&item.hasTime===true;}
+function isInternalTarget(item){return /内部(?:締切|期限|目標)/.test(normalize(item&&item.title));}
+function deadlineKindLabel(item){
+  if(isInternalTarget(item))return "内部目標";
+  return /(?:申込|申請)(?:締切|〆切|期限)/.test(normalize(item&&item.title))?"申込締切":"重要期限";
+}
 function deadlineTimeElapsed(item,now=STATUS_NOW){return deadlineHasTime(item)&&+item.date<=+now;}
 function deadlineCountdown(item,now=STATUS_NOW){
   const days=daysBetween(now,item.date);
-  if(!deadlineHasTime(item))return days===0?"今日締切":days===1?"明日締切":relativeDay(item.date);
+  const action=isInternalTarget(item)?"目標":"締切";
+  if(!deadlineHasTime(item))return days===0?"今日"+action:days===1?"明日"+action:relativeDay(item.date);
   const time=fmtTime(item.date);
-  if(deadlineTimeElapsed(item,now))return time+"締切経過";
-  return (days===0?"今日":days===1?"明日":"あと"+days+"日 ")+time+"締切";
+  if(deadlineTimeElapsed(item,now))return time+action+"経過";
+  return (days===0?"今日":days===1?"明日":"あと"+days+"日 ")+time+action;
 }
 // Medium-only display abbreviation. Never rewrite a Calendar record or guess a date.
 // Accept only an explicit course application deadline followed by one dated session.
@@ -641,31 +647,36 @@ function mediumSessionDeadlineTitle(value){
   return match[1]+session+" 申込〆 "+course;
 }
 function mediumDeadlineTitle(item){
+  if(isInternalTarget(item))return (deadlineTimeElapsed(item)?"【内部目標経過】":"【内部目標】")+item.title;
   const compact=mediumSessionDeadlineTitle(item.title);
   if(compact!==null)return (deadlineTimeElapsed(item)?"【締切経過】":"")+compact;
   if(!deadlineHasTime(item))return item.title;
   return (deadlineTimeElapsed(item)?"【締切経過】":"【締切】")+item.title;
 }
+// Only an explicit title marker makes a clock unannounced. Midnight alone is valid.
+function hasUnannouncedTime(item){
+  return /(?:^|[【\[(（\s｜|:：])(?:開始)?(?:時間|時刻)(?:未定|未発表|未公表)(?=$|[】\])）\s｜|:：])/.test(normalize(item&&item.title));
+}
 function agendaPresentation(item,previous=null,now=STATUS_NOW){
   const start=item.date,end=item.endDate,hasEnd=end instanceof Date&&Number.isFinite(+end)&&+end>+start;
   let title=eventDisplayTitle(item);
-  const ongoing=hasEnd&&!item.allDay&&+start<=+now&&+end>+now;
+  const unannounced=hasUnannouncedTime(item);
+  const ongoing=hasEnd&&!item.allDay&&!unannounced&&+start<=+now&&+end>+now;
   const carryAllDay=hasEnd&&item.allDay&&+start<+dayStart(now)&&+end>+now;
   if(ongoing){
     const fromEarlierDay=+start<+dayStart(now);
-    const endLabel=sameCalendarDay(end,now)?"終了":""+fmtDate(end)+"終了";
-    title=endLabel+"｜"+(fromEarlierDay?fmtDate(start)+"開始｜":"")+title;
-    return {day:fromEarlierDay?"継続中":"進行中",time:fmtTime(end),title};
+    title=(sameCalendarDay(end,now)?"":fmtDate(end)+"まで｜")+(fromEarlierDay?fmtDate(start)+"開始｜":"")+title;
+    return {day:"開催中",time:fmtTime(end),until:"まで",title};
   }
-  if(carryAllDay){
+  if(carryAllDay&&!unannounced){
     // All-day end is exclusive. Show the stored span, without inventing a clock time.
     title=fmtDate(start)+"～"+fmtDate(new Date(+end-1))+"｜"+title;
     return {day:"継続中",time:"終日",title};
   }
-  const previousOngoing=previous&&previous.endDate instanceof Date&&+previous.date<=+now&&+previous.endDate>+now&&
+  const previousOngoing=previous&&!hasUnannouncedTime(previous)&&previous.endDate instanceof Date&&+previous.date<=+now&&+previous.endDate>+now&&
     (!previous.allDay||+previous.date<+dayStart(now));
   const repeated=previous&&!previousOngoing&&sameCalendarDay(previous.date,start);
-  return {day:repeated?"":timelineDay(start,now),time:fmtTime(start,item.allDay),title};
+  return {day:repeated?"":timelineDay(start,now),time:unannounced?"未定":fmtTime(start,item.allDay),title};
 }
 function weatherTint(code,isDay=true){
   if([0,1,2].includes(code))return isDay===false?C.purple:isDay===true?C.orange:C.gray;
@@ -701,7 +712,7 @@ function nextRefresh(){
   if(!sameCalendarDay(RUN_NOW,now))return now;
   const minutes=numberOrNull(CFG.refreshMinutes);
   const boundaries=[...actionableDeadlines.filter(deadlineHasTime).map(item=>+item.date),
-    ...scheduleRows.filter(item=>!item.allDay).flatMap(item=>[+item.date,+item.endDate])]
+    ...scheduleRows.filter(item=>!item.allDay&&!hasUnannouncedTime(item)).flatMap(item=>[+item.date,+item.endDate])]
     .filter(time=>Number.isFinite(time)&&time>+now);
   return new Date(Math.min(now.getTime()+Math.max(1,minutes===null?15:minutes)*60000,
     addDays(dayStart(now),1).getTime(),...boundaries));
@@ -755,7 +766,7 @@ const upcoming7=upcomingData.items;
 const renderedAt=new Date();
 const STATUS_NOW=sameCalendarDay(RUN_NOW,renderedAt)?renderedAt:RUN_NOW;
 
-const todaySchedule=eventsData.items.filter(e=>isAllDayLikeEvent(e)||+new Date(e.endDate)>+STATUS_NOW).map(e=>{
+const todaySchedule=eventsData.items.filter(e=>isAllDayLikeEvent(e)||+new Date(e.endDate)>+STATUS_NOW||(hasUnannouncedTime(e)&&sameCalendarDay(new Date(e.startDate),STATUS_NOW))).map(e=>{
   const calendarTitle=calName(e);
   return {
     title:normalize(e.title),
@@ -896,7 +907,7 @@ if(resolveFamily()==="medium"){
   }
 
   // Shared columns apply to both schedule and deadline: when | time/type | content.
-  function agendaRow(dayLabel,timeLabel,titleText,dayColor,timeColor,item){
+  function agendaRow(dayLabel,timeLabel,titleText,dayColor,timeColor,item,until=""){
     const row=fixedRow(card,contentWidth,M.row);row.url=calendarURL();
 
     const d=fixedRow(row,M.dayWidth,M.row);
@@ -906,7 +917,8 @@ if(resolveFamily()==="medium"){
     row.addSpacer(M.columnGap);
 
     const tm=fixedRow(row,M.timeWidth,M.row);
-    singleText(tm,timeLabel,Font.semiboldSystemFont(11),timeColor);
+    singleText(tm,timeLabel,until?Font.mediumMonospacedSystemFont(10):Font.semiboldSystemFont(11),timeColor);
+    if(until)singleText(tm,until,Font.mediumSystemFont(7),timeColor);
     tm.addSpacer();
 
     row.addSpacer(M.columnGap);
@@ -940,7 +952,7 @@ if(resolveFamily()==="medium"){
   }else{
     mediumRows.forEach((item,i)=>{
       const display=agendaPresentation(item,i>0?mediumRows[i-1]:null);
-      agendaRow(display.day,display.time,display.title,item.today?C.blue:C.text,item.today?C.blue:C.sub,item);
+      agendaRow(display.day,display.time,display.title,item.today?C.blue:C.text,item.today?C.blue:C.sub,item,display.until);
     });
   }
   if(footerNeeded){
@@ -962,27 +974,53 @@ if(resolveFamily()==="medium"){
   return renderReceipt();
 }
 
-// LARGE v1.79: retain v1.78 geometry; share truthful event/weather labels with Medium.
-// Keep full time columns, left-aligned deadline text and bounded sparse-state spacing.
-const L={width:329,dayWidth:38,timeWidth:44,iconWidth:12,columnGap:3,header:54,row:15,deadlineMeta:14,deadlineTitleMax:28,deadlineGap:4,agendaHeading:16,cardPad:6,gap:4,weekHeight:68};
+// LARGE v1.81: bounded row allocation, rather than a large unused bottom spacer.
+// Device widths select conservative design caps, NOT measured native widget frames.
+function largeMetrics(){
+  let screenWidth=393;
+  try{screenWidth=Math.min(Device.screenSize().width,Device.screenSize().height);}catch(_){}
+  const compact=screenWidth<=320,spacious=screenWidth>414;
+  return {width:Math.min(329,mediumMetrics().width-8),dayWidth:38,timeWidth:44,iconWidth:12,columnGap:3,
+    header:54,row:15,deadlineMeta:compact?12:14,deadlineGap:compact?2:4,agendaHeading:compact?13:16,
+    cardPad:compact?2:6,gap:compact?2:spacious?6:4,sectionGap:compact?3:6,weekHeight:68,
+    budget:compact?311:screenWidth<=375?338:spacious?382:354};
+}
+const L=largeMetrics();
 const runtime=globalThis.ORE_DASH_RUNTIME||{};
 const largeState=mediumState(eventsData,upcomingData,deadlineData,W,position,runtime);
 const largeDeadlines=actionableDeadlines.slice(0,2);
 const largeWeatherUsable=W.ok&&!W.stale&&!W.timeUnverified;
-// Use breathing room when fewer deadlines exist; the two-long-deadline budget stays bounded.
-const sparseAgenda=largeDeadlines.length<2;
-const agendaRowHeight=largeDeadlines.length===0?23:largeDeadlines.length===1?21:L.row;
-const agendaSectionGap=sparseAgenda?4:0;
-const largeCardGap=sparseAgenda?6:L.gap;
-// Design budget, not a measurement of native iOS font shaping or the live widget frame.
-const largeAgendaMax=L.cardPad*2+2*(L.deadlineMeta+1+L.deadlineTitleMax)+L.deadlineGap+L.agendaHeading+6*L.row;
-const largeBudget=16+L.header+2*L.gap+largeAgendaMax+L.weekHeight;
-// A conservative bound for the selected state, including two lines per deadline.
-// It is not a native text measurement. Keep the two-long-deadline maximum unchanged.
-const deadlineHeightBound=largeDeadlines.length
-  ?largeDeadlines.length*(L.deadlineMeta+1+L.deadlineTitleMax)+(largeDeadlines.length-1)*L.deadlineGap:28;
-const agendaHeightBound=L.cardPad*2+deadlineHeightBound+agendaSectionGap+L.agendaHeading+Math.max(1,scheduleRows.length)*agendaRowHeight;
-const largeCurrentBudget=16+L.header+2*largeCardGap+agendaHeightBound+L.weekHeight;
+const agendaSectionGap=L.sectionGap,largeCardGap=L.gap,largeBudget=L.budget;
+const largeDisplays=scheduleRows.map((item,index)=>agendaPresentation(item,index?scheduleRows[index-1]:null));
+const agendaHeights=Array(Math.max(1,scheduleRows.length)).fill(L.row);
+const agendaLines=Array(scheduleRows.length).fill(1),deadlineLines=Array(largeDeadlines.length).fill(1);
+// This estimate only chooses which labels deserve a second line. Native ellipsis
+// remains the final fallback; fixed boxes keep an underestimated label from overflow.
+function estimatedTextWidth(value,size){return Array.from(String(value)).reduce((sum,char)=>sum+(/[\x00-\x7F]/.test(char)?0.62:1.05)*size,0);}
+const titleWidth=L.width-24-L.dayWidth-L.timeWidth-L.iconWidth-L.columnGap*3;
+const baseHeight=16+L.header+2*largeCardGap+L.cardPad*2+agendaSectionGap+L.agendaHeading+L.weekHeight+
+  (largeDeadlines.length?largeDeadlines.length*(L.deadlineMeta+1+15)+(largeDeadlines.length-1)*L.deadlineGap:28)+
+  agendaHeights.reduce((sum,height)=>sum+height,0);
+let extraHeight=Math.max(0,largeBudget-baseHeight);
+// Preserve deadline details first, then the ongoing end label, then long names.
+largeDeadlines.forEach((item,index)=>{
+  if(estimatedTextWidth(item.title,11)>(L.width-24)*0.92&&extraHeight>=14){deadlineLines[index]=2;extraHeight-=14;}
+});
+largeDisplays.forEach((display,index)=>{
+  if(display.until&&extraHeight>=9){agendaHeights[index]=24;extraHeight-=9;}
+});
+largeDisplays.forEach((display,index)=>{
+  const needed=30-agendaHeights[index];
+  if(estimatedTextWidth(display.title,12)>titleWidth*0.92&&extraHeight>=needed){agendaLines[index]=2;agendaHeights[index]=30;extraHeight-=needed;}
+});
+// Spread the rest into row breathing room, but do not stretch sparse lists indefinitely.
+for(let pass=0;pass<7&&extraHeight>0;pass++)agendaHeights.forEach((height,index)=>{
+  const cap=agendaLines[index]===2?34:largeDisplays[index]&&largeDisplays[index].until?28:22;
+  if(extraHeight>0&&height<cap){agendaHeights[index]++;extraHeight--;}
+});
+const largeCurrentBudget=baseHeight+deadlineLines.filter(lines=>lines===2).length*14+
+  agendaHeights.reduce((sum,height)=>sum+height-L.row,0);
+if(largeCurrentBudget>largeBudget)throw new Error("Large layout budget exceeded");
 function largeTextCell(parent,width,height){
   const cell=fixedRow(parent,width,height);
   cell.layoutHorizontally();cell.setPadding(0,0,0,0);cell.spacing=0;
@@ -992,6 +1030,17 @@ function largeWeatherTint(code,isDay=true){return weatherTint(code,isDay);}
 function largeDeadlineDate(date){return fmtDate(date)+"（"+["日","月","火","水","木","金","土"][date.getDay()]+"）";}
 function largeDeadlineCountdown(item){return deadlineCountdown(item);}
 function largeAgendaTitle(item){return eventDisplayTitle(item);}
+function largeWeatherLocation(parent,maxWidth){
+  // Keep the disclosure separate so a long city name cannot ellipsize it away.
+  const markerWidth=position.ok?0:54;
+  const cityWidth=Math.max(18,Math.min(estimatedTextWidth(position.city,10)+2,maxWidth-markerWidth));
+  const cityBox=largeTextCell(parent,cityWidth,14);
+  singleText(cityBox,position.city,Font.mediumSystemFont(10),C.sub);cityBox.addSpacer();
+  if(!position.ok){
+    const marker=largeTextCell(parent,markerWidth,14);
+    singleText(marker,"〈代替地点〉",Font.mediumSystemFont(9),C.orange);marker.addSpacer();
+  }
+}
 const w=new ListWidget();w.setPadding(8,14,8,14);w.backgroundColor=C.bg;w.url=calendarURL();
 // HEADER: whole date in natural order, with the weather as the right-side headline.
 const header=fixedRow(w,L.width,L.header);header.topAlignContent();
@@ -1002,9 +1051,7 @@ let t=singleText(dateLine,(RUN_NOW.getMonth()+1)+"月"+RUN_NOW.getDate()+"日",F
 t.minimumScaleFactor=0.95;dateLine.addSpacer();
 const placeLine=fixedRow(identity,identityWidth,17);
 singleText(placeLine,["日","月","火","水","木","金","土"][RUN_NOW.getDay()]+"曜日",Font.semiboldSystemFont(14),C.text);
-placeLine.addSpacer(7);
-const cityBox=fixedRow(placeLine,identityWidth-49,17);
-t=singleText(cityBox,(position.ok?"":"予備 ")+position.city,Font.mediumSystemFont(9),C.sub);t.minimumScaleFactor=0.85;cityBox.addSpacer();
+placeLine.addSpacer();
 if(largeWeatherUsable){
   const asOfLine=fixedRow(identity,identityWidth,13),asOf=weatherAsOfLabel(W);
   singleText(asOfLine,asOf?"天気 "+asOf+(W.isDay===null?"・昼夜不明":""):"天気 時刻不明",Font.mediumSystemFont(9),asOf?C.sub:C.orange);asOfLine.addSpacer();
@@ -1021,6 +1068,8 @@ if(largeWeatherUsable){
 }else{
   const errorLine=fixedRow(weatherPane,weatherWidth,27);errorLine.addSpacer();
   t=singleText(errorLine,weatherFailureText(W),Font.semiboldSystemFont(10),C.orange);t.minimumScaleFactor=0.9;
+  const locationLine=fixedRow(weatherPane,weatherWidth,14);locationLine.addSpacer();
+  largeWeatherLocation(locationLine,weatherWidth);
 }
 w.addSpacer(largeCardGap);
 // AGENDA: only the common parent has a background; sub-sections are transparent.
@@ -1031,14 +1080,11 @@ if(deadlineData.ok&&largeDeadlines.length){
   largeDeadlines.forEach((item,index)=>{
     const urgency=deadlineColor(item.date),meta=fixedRow(deadlineCard,contentWidth,L.deadlineMeta);
     singleText(meta,largeDeadlineDate(item.date),Font.semiboldSystemFont(11),urgency);
-    if(index===0){
-      meta.addSpacer(6);singleText(meta,"重要期限",Font.mediumSystemFont(9),C.sub);
-      if(actionableDeadlines.length>largeDeadlines.length){meta.addSpacer(4);singleText(meta,"直近2件",Font.mediumSystemFont(8),C.sub);}
-    }
+    meta.addSpacer(6);singleText(meta,deadlineKindLabel(item),Font.mediumSystemFont(9),C.sub);
     meta.addSpacer();singleText(meta,largeDeadlineCountdown(item),Font.semiboldSystemFont(10),urgency);
     deadlineCard.addSpacer(1);
-    const titleBox=largeTextCell(deadlineCard,contentWidth,0);
-    t=titleBox.addText(item.title);t.font=Font.mediumSystemFont(11);t.textColor=C.text;t.lineLimit=2;t.minimumScaleFactor=1;
+    const titleBox=largeTextCell(deadlineCard,contentWidth,deadlineLines[index]===2?29:15);
+    t=titleBox.addText(item.title);t.font=Font.mediumSystemFont(11);t.textColor=C.text;t.lineLimit=deadlineLines[index];t.minimumScaleFactor=1;
     // WidgetText.leftAlignText() does not position text inside a Stack.
     // A trailing flexible spacer pins this one/two-line label to the leading edge.
     titleBox.addSpacer();
@@ -1055,28 +1101,37 @@ singleText(sh,"予定",Font.semiboldSystemFont(11),C.sub);sh.addSpacer(7);
 const sectionRule=sh.addStack();sectionRule.size=new Size(28,1);sectionRule.backgroundColor=C.separator;sh.addSpacer();
 const schedulePartial=!eventsData.ok||!upcomingData.ok;
 const codeSourceWarning=runtime.codeSource==="lastGood"?"前回コード":runtime.codeSource==="network"?"":"取得元不明";
+if(actionableDeadlines.length>largeDeadlines.length){singleText(sh,"期限は直近2件",Font.mediumSystemFont(8),C.sub);sh.addSpacer(6);}
 if(codeSourceWarning){singleText(sh,codeSourceWarning,Font.semiboldSystemFont(9),C.orange);if(schedulePartial)sh.addSpacer(6);}
 if(schedulePartial)singleText(sh,"一部取得失敗",Font.mediumSystemFont(8),C.orange);
 if(!scheduleRows.length){
-  const empty=fixedRow(scheduleCard,contentWidth,agendaRowHeight);
+  const empty=fixedRow(scheduleCard,contentWidth,agendaHeights[0]);
   singleText(empty,schedulePartial?"予定を取得できません":"直近の予定なし",Font.mediumSystemFont(11),schedulePartial?C.orange:C.sub);
 }else{
   scheduleRows.forEach((item,index)=>{
+    const agendaRowHeight=agendaHeights[index];
     const line=largeTextCell(scheduleCard,contentWidth,agendaRowHeight);line.url=calendarURL();
-    const display=agendaPresentation(item,index>0?scheduleRows[index-1]:null),dayBox=largeTextCell(line,L.dayWidth,agendaRowHeight);
+    const display=largeDisplays[index],dayBox=largeTextCell(line,L.dayWidth,agendaRowHeight);
     singleText(dayBox,display.day,Font.semiboldSystemFont(10),item.today?C.blue:C.text);
     dayBox.addSpacer();line.addSpacer(L.columnGap);
     const timeBox=largeTextCell(line,L.timeWidth,agendaRowHeight);
     // Reserve 44pt for the complete HH:mm. Equal-width digits avoid time-dependent fit.
     const timeFont=item.allDay?Font.mediumSystemFont(10):Font.mediumMonospacedSystemFont(10);
-    singleText(timeBox,display.time,timeFont,item.today?C.blue:C.sub);
+    if(display.until&&agendaRowHeight>=24){
+      timeBox.layoutVertically();timeBox.addSpacer();
+      singleText(timeBox,display.time,timeFont,item.today?C.blue:C.sub);
+      singleText(timeBox,display.until,Font.mediumSystemFont(8),item.today?C.blue:C.sub);
+    }else{
+      singleText(timeBox,display.time,timeFont,item.today?C.blue:C.sub);
+      if(display.until)singleText(timeBox,display.until,Font.mediumSystemFont(7),item.today?C.blue:C.sub);
+    }
     timeBox.addSpacer();line.addSpacer(L.columnGap);
     const iconBox=largeTextCell(line,L.iconWidth,agendaRowHeight);
     if(item.combat)combatIcon(iconBox,item,10);else icon(iconBox,futureIconName(item),C.sub,10);
     line.addSpacer(L.columnGap);
     const titleWidth=contentWidth-L.dayWidth-L.timeWidth-L.iconWidth-L.columnGap*3,titleBox=largeTextCell(line,titleWidth,agendaRowHeight);
     // Emphasis follows timing, not sport/category. Native ellipsis is the last fallback.
-    singleText(titleBox,display.title,item.today?Font.semiboldSystemFont(12):Font.mediumSystemFont(12),C.text);titleBox.addSpacer();
+    t=singleText(titleBox,display.title,item.today?Font.semiboldSystemFont(12):Font.mediumSystemFont(12),C.text);t.lineLimit=agendaLines[index];titleBox.addSpacer();
   });
 }
 w.addSpacer(largeCardGap);
@@ -1088,10 +1143,12 @@ if(largeWeatherUsable){
   });
   const weekComplete=weekDays.every(day=>day&&[day.code,day.max,day.min].every(x=>x!==null));
   const weekCard=mkCard(w);weekCard.size=new Size(L.width,0);weekCard.setPadding(5,12,5,12);
-  const wh=fixedRow(weekCard,contentWidth,14);singleText(wh,"週間天気",Font.semiboldSystemFont(11),C.sub);wh.addSpacer();
+  const wh=fixedRow(weekCard,contentWidth,14);singleText(wh,"週間天気",Font.semiboldSystemFont(11),C.sub);wh.addSpacer(6);
+  largeWeatherLocation(wh,contentWidth-44-6-78);wh.addSpacer();
   const rainKnown=numberOrNull(W.rain)!==null&&W.rain>=0&&W.rain<=100;
   singleText(wh,dailyRainLabel(W),Font.mediumSystemFont(9),rainKnown?C.sub:C.orange);
-  if(!weekComplete){wh.addSpacer(6);singleText(wh,"一部未取得",Font.mediumSystemFont(8),C.orange);}
+  // The body below already explains missing forecasts. Do not append another
+  // badge to this fixed-width location/rain row on narrow screens.
   weekCard.addSpacer(2);
   if(weekComplete){
     const grid=weekCard.addStack(),gap=3,cellWidth=(contentWidth-gap*5)/6;
@@ -1105,7 +1162,11 @@ if(largeWeatherUsable){
       });
       if(index<weekDays.length-1)grid.addSpacer(gap);
     });
-  }else singleText(weekCard,"週間予報を取得できません",Font.mediumSystemFont(10),C.orange);
+  }else{
+    const missing=fixedRow(weekCard,contentWidth,14);
+    singleText(missing,"一部未取得",Font.mediumSystemFont(8),C.orange);missing.addSpacer(6);
+    singleText(missing,"週間予報を取得できません",Font.mediumSystemFont(10),C.orange);missing.addSpacer();
+  }
 }
 w.addSpacer();w.refreshAfterDate=nextRefresh();
 console.log("[weather] source=open-meteo-best-match cell=nearest city="+position.city+
