@@ -1,8 +1,8 @@
-// 俺専用ダッシュボード v1.81-github
+// 俺専用ダッシュボード v1.82-github
 // Remote main for Scriptable loader.
 // IMPORTANT: Script.complete() は loader 側で呼ぶ。
 
-const VERSION = "1.81-github";
+const VERSION = "1.82-github";
 
 const USER = globalThis.ORE_DASH_CONFIG || {};
 const RUN_NOW = new Date();
@@ -86,7 +86,8 @@ function boundedCall(start,milliseconds){
 }
 async function getPosition(){
   const fallback=reason=>({ok:false,cityOK:false,city:normalize(CFG.fallbackCity)||"予備地点",
-    lat:coordinateOrNull(CFG.fallbackLat,-90,90),lon:coordinateOrNull(CFG.fallbackLon,-180,180),reason});
+    lat:coordinateOrNull(CFG.fallbackLat,-90,90),lon:coordinateOrNull(CFG.fallbackLon,-180,180),
+    reason,locationReason:reason,geocodeReason:"not-requested"});
   const result=await boundedCall(()=>{
     Location.setAccuracyToThreeKilometers();return Location.current();
   },4000);
@@ -96,7 +97,18 @@ async function getPosition(){
   const geocode=await boundedCall(()=>Location.reverseGeocode(lat,lon,"ja_JP"),2000);
   const place=geocode.ok&&Array.isArray(geocode.value)?geocode.value[0]:null;
   const city=place&&((typeof place.locality==="string"?normalize(place.locality):"")||(typeof place.subLocality==="string"?normalize(place.subLocality):""));
-  return {ok:true,cityOK:!!city,city:city||"現在地・地名不明",lat,lon,reason:city?"":"geocode-unavailable"};
+  const geocodeReason=!geocode.ok?geocode.reason:!place?"empty-result":city?"ok":"name-missing";
+  return {ok:true,cityOK:!!city,city:city||"現在地・地名不明",lat,lon,
+    reason:city?"":"geocode-unavailable",locationReason:"ok",geocodeReason};
+}
+
+// Stage-only diagnostics: no coordinates, city, native error text or user settings.
+// A generic native rejection is "failed", not an unverified permission diagnosis.
+function locationDiagnostic(pos){
+  const known=new Set(["ok","failed","timeout","timer-unavailable","invalid-coordinates","not-requested","empty-result","name-missing"]);
+  const safe=value=>known.has(value)?value:"unknown";
+  return "[location] source="+(pos.ok?"current":"fallback")+
+    " gps="+safe(pos.locationReason)+" geocode="+safe(pos.geocodeReason);
 }
 
 // The age threshold is a display safety policy, not a forecast-accuracy claim.
@@ -676,7 +688,8 @@ function agendaPresentation(item,previous=null,now=STATUS_NOW){
   const previousOngoing=previous&&!hasUnannouncedTime(previous)&&previous.endDate instanceof Date&&+previous.date<=+now&&+previous.endDate>+now&&
     (!previous.allDay||+previous.date<+dayStart(now));
   const repeated=previous&&!previousOngoing&&sameCalendarDay(previous.date,start);
-  return {day:repeated?"":timelineDay(start,now),time:unannounced?"未定":fmtTime(start,item.allDay),title};
+  // A date-only/unknown-time row must stand on its own, including after an all-day row.
+  return {day:unannounced?fmtDate(start):repeated?"":timelineDay(start,now),time:unannounced?"未定":fmtTime(start,item.allDay),title};
 }
 function weatherTint(code,isDay=true){
   if([0,1,2].includes(code))return isDay===false?C.purple:isDay===true?C.orange:C.gray;
@@ -760,6 +773,7 @@ const positionPromise=getPosition(),weatherPromise=positionPromise.then(pos=>get
 const [position,W,eventsData,deadlineData,upcomingData]=await Promise.all([
   positionPromise,weatherPromise,eventsPromise,deadlinePromise,upcomingPromise
 ]);
+console.log(locationDiagnostic(position));
 const upcoming7=upcomingData.items;
 // Keep the calendar-day snapshot across midnight, but do not miss a same-day
 // deadline or ending boundary crossed while native requests were outstanding.
@@ -1031,15 +1045,35 @@ function largeDeadlineDate(date){return fmtDate(date)+"（"+["日","月","火","
 function largeDeadlineCountdown(item){return deadlineCountdown(item);}
 function largeAgendaTitle(item){return eventDisplayTitle(item);}
 function largeWeatherLocation(parent,maxWidth){
-  // Keep the disclosure separate so a long city name cannot ellipsize it away.
-  const markerWidth=position.ok?0:54;
-  const cityWidth=Math.max(18,Math.min(estimatedTextWidth(position.city,10)+2,maxWidth-markerWidth));
+  // Give the city all remaining width, not a tight heuristic glyph width.
+  const markerWidth=position.ok?0:64,gap=position.ok?0:4;
+  const cityWidth=Math.max(1,maxWidth-markerWidth-gap);
   const cityBox=largeTextCell(parent,cityWidth,14);
   singleText(cityBox,position.city,Font.mediumSystemFont(10),C.sub);cityBox.addSpacer();
   if(!position.ok){
+    parent.addSpacer(gap);
     const marker=largeTextCell(parent,markerWidth,14);
     singleText(marker,"〈代替地点〉",Font.mediumSystemFont(9),C.orange);marker.addSpacer();
   }
+}
+function largeForecastHeading(parent,width){
+  // Every column has a fixed, zero-padding box. The optional section caption yields
+  // to location/disclosure; rain and clock columns never borrow the city's width.
+  const row=largeTextCell(parent,width,14),gap=4,rainWidth=88,captionWidth=50;
+  const markerWidth=position.ok?0:68;
+  const cityFloor=Math.max(80,Math.min(160,Math.ceil(estimatedTextWidth(position.city,10)+20)));
+  const captionFits=width-rainWidth-gap-captionWidth-gap-markerWidth>=cityFloor;
+  if(captionFits){
+    const caption=largeTextCell(row,captionWidth,14);
+    singleText(caption,"週間天気",Font.semiboldSystemFont(11),C.sub);caption.addSpacer();
+    row.addSpacer(gap);
+  }
+  largeWeatherLocation(row,width-rainWidth-gap-(captionFits?captionWidth+gap:0));
+  row.addSpacer(gap);
+  const rain=largeTextCell(row,rainWidth,14);rain.addSpacer();
+  const rainKnown=numberOrNull(W.rain)!==null&&W.rain>=0&&W.rain<=100;
+  singleText(rain,dailyRainLabel(W),Font.mediumSystemFont(9),rainKnown?C.sub:C.orange);
+  return row;
 }
 const w=new ListWidget();w.setPadding(8,14,8,14);w.backgroundColor=C.bg;w.url=calendarURL();
 // HEADER: whole date in natural order, with the weather as the right-side headline.
@@ -1052,6 +1086,11 @@ t.minimumScaleFactor=0.95;dateLine.addSpacer();
 const placeLine=fixedRow(identity,identityWidth,17);
 singleText(placeLine,["日","月","火","水","木","金","土"][RUN_NOW.getDay()]+"曜日",Font.semiboldSystemFont(14),C.text);
 placeLine.addSpacer();
+if(!position.ok){
+  // Also disclose fallback beside the top weather time, not only the forecast grid.
+  const badge=largeTextCell(placeLine,80,17);badge.addSpacer();
+  singleText(badge,"代替地点の天気",Font.mediumSystemFont(9),C.orange);
+}
 if(largeWeatherUsable){
   const asOfLine=fixedRow(identity,identityWidth,13),asOf=weatherAsOfLabel(W);
   singleText(asOfLine,asOf?"天気 "+asOf+(W.isDay===null?"・昼夜不明":""):"天気 時刻不明",Font.mediumSystemFont(9),asOf?C.sub:C.orange);asOfLine.addSpacer();
@@ -1143,10 +1182,7 @@ if(largeWeatherUsable){
   });
   const weekComplete=weekDays.every(day=>day&&[day.code,day.max,day.min].every(x=>x!==null));
   const weekCard=mkCard(w);weekCard.size=new Size(L.width,0);weekCard.setPadding(5,12,5,12);
-  const wh=fixedRow(weekCard,contentWidth,14);singleText(wh,"週間天気",Font.semiboldSystemFont(11),C.sub);wh.addSpacer(6);
-  largeWeatherLocation(wh,contentWidth-44-6-78);wh.addSpacer();
-  const rainKnown=numberOrNull(W.rain)!==null&&W.rain>=0&&W.rain<=100;
-  singleText(wh,dailyRainLabel(W),Font.mediumSystemFont(9),rainKnown?C.sub:C.orange);
+  const wh=largeForecastHeading(weekCard,contentWidth);
   // The body below already explains missing forecasts. Do not append another
   // badge to this fixed-width location/rain row on narrow screens.
   weekCard.addSpacer(2);

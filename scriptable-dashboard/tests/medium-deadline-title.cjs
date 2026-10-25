@@ -5,9 +5,9 @@ process.env.TZ='Asia/Tokyo';
 const fs=require('node:fs'),path=require('node:path'),vm=require('node:vm');
 const assert=require('node:assert/strict'),crypto=require('node:crypto');
 const root=path.dirname(__dirname),source=fs.readFileSync(process.argv[2]||path.join(root,'main.js'),'utf8');
-// Intentional v1.81 renderer baselines: responsive Large + explicit ongoing until.
+// Intentional v1.82 Large location-disclosure baseline; Medium remains v1.81.
 // Loader remains pinned to the original v1.4 bytes. Native fit is not hash-tested.
-const baseHash={large:'5bb8830219ee798476fae22c37489f6157a240fec5e1dfee56d191fd1ea8c1d9',medium:'0e8323aed5d66b949dece1c32938ac5610ca6c2461d3fff5a1b946534e117024',loader:'2806858b80e5333b740e2d5caea44c7bb8aa66791defb24f40fa2cb40d4d359a'};
+const baseHash={large:'655df0bc627f2e6c548cc39cfc4a6e435f1dab477b1d08ce81376938aa5c38ba',medium:'0e8323aed5d66b949dece1c32938ac5610ca6c2461d3fff5a1b946534e117024',loader:'2806858b80e5333b740e2d5caea44c7bb8aa66791defb24f40fa2cb40d4d359a'};
 const sha=s=>crypto.createHash('sha256').update(s).digest('hex');
 const prefixEnd=source.indexOf('const fetchedAt=new Date(RUN_NOW);');
 assert.ok(prefixEnd>0,'real function prefix not found');
@@ -84,7 +84,7 @@ test('No new clock/status data is invented for a record without an explicit time
 test('Malformed session parser values fail closed',()=>{
   assert.ok(upcoming.compact);for(const value of [null,undefined,0,{},[]])assert.equal(upcoming.compact(value),null);
 });
-test('Large renderer matches the intentional v1.81 display-audit baseline',()=>assert.equal(sha(source.slice(source.indexOf('// LARGE'))),baseHash.large));
+test('Large renderer matches the intentional v1.82 location-disclosure baseline',()=>assert.equal(sha(source.slice(source.indexOf('// LARGE'))),baseHash.large));
 test('Medium renderer matches v1.81 ongoing labels with unchanged geometry',()=>assert.equal(sha(source.slice(source.indexOf('// MEDIUM'),source.indexOf('// LARGE'))),baseHash.medium));
 test('Loader is unchanged',()=>assert.equal(sha(fs.readFileSync(path.join(root,'loader.js'))),baseHash.loader));
 const failed=results.filter(r=>r.status==='FAIL');

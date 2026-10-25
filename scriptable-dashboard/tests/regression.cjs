@@ -160,7 +160,11 @@ async function funcs(code=source,opts={}){
 }
 function nodes(root,kind){return [root,...root.children.flatMap(c=>nodes(c))].filter(n=>!kind||n.kind===kind);}
 const texts=w=>nodes(w,'text').map(n=>n.text);
-const card=(w,title)=>nodes(w,'stack').find(n=>n.children[0]?.kind==='stack'&&n.children[0].children.some(x=>x.text===title));
+// The forecast caption may yield to the location on narrow headings. Identify that
+// card by its fixed heading's rain label; do not require an optional caption.
+const card=(w,title)=>title==='週間天気'
+  ?nodes(w,'stack').find(n=>n.backgroundColor&&n.children[0]?.kind==='stack'&&texts(n.children[0]).some(x=>/^今日降水/.test(x)))
+  :nodes(w,'stack').find(n=>n.children[0]?.kind==='stack'&&n.children[0].children.some(x=>x.text===title));
 async function test(name,fn){try{await fn();results.push({name,status:'PASS'});}catch(e){results.push({name,status:'FAIL',message:e.stack});}}
 async function main(){
   await test('Source syntax: real main + loader as async Scriptable bodies',()=>{
