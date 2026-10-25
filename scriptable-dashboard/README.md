@@ -15,10 +15,18 @@ Remote main:
 
 ## Current candidate
 
-- Dashboard: `1.81-github`
+- Dashboard: `1.82-github`
 - Loader: `1.4`
 - Target layouts: Medium (calendar first) and Large (weather overview)
 - Preserve local `ORE_DASH_CONFIG` when updating the loader. Do not copy personal settings into this repository.
+
+### v1.82: location clarity and standalone unknown-time dates
+- Large forecast headings allocate explicit zero-padding columns to the city, fallback marker and rain probability. City text receives at least 80pt in the supported forecast widths; the optional '週間天気' caption yields before those fields. Full city text remains stored; unusually long names may still use native ellipsis.
+- When fallback coordinates are used, the top header also says '代替地点の天気'. The forecast retains its independent '〈代替地点〉' marker. Valid GPS with unresolved geocoding is not relabeled fallback.
+- A separate '[location]' diagnostic logs only source, GPS stage and geocoding stage outcomes. It does not include city, coordinates, settings or native error strings, and does not claim every rejection is a permission denial. Existing weather diagnostic logging is unchanged.
+- Explicit time-unannounced entries display their absolute date even after a same-day event. Their time remains '未定' and their original status remains in the title. Known-time day grouping remains unchanged in both sizes.
+- Preserve data requests, timeouts, counts, deadlines, 44pt clock columns, Medium renderer, Large height allocation and Loader. No private Calendar records or device settings are touched.
+- Offline acceptance adds 107 cases across widths, modes, failures, stage logging and same-day groups. Native iPhone glyph fitting and the actual cause of a particular fallback still require device evidence.
 
 ### v1.81: repair the display audit findings
 - Explicit unannounced start-time markers display `未定`, never an invented `00:00` or ongoing state. A true midnight event remains timed. Today's placeholder remains visible for that day; Calendar records are never edited.
@@ -45,7 +53,7 @@ Remote main:
 - GPS and reverse geocoding have separate 4,000ms/2,000ms await bounds using Scriptable Timer. Independent Calendar reads start first. Late location responses do not mutate the completed view; the native request itself is not cancellable here.
 - Valid coordinates with unavailable geocoding display '現在地・地名不明', never an unrelated fallback city's name. Invalid fallback coordinates do not trigger a weather request.
 - Medium shows the weather model timestamp rather than implying render age is weather age. In compact mode (<=320pt), the model timestamp takes priority over today's daily rain probability; the regular Medium retains both.
-- Medium uses the same semantic weather colors as Large. Unknown current day/night uses a neutral symbol and disclosure; daily forecasts remain daily summaries.
+- Medium uses the same semantic weather colors as Large. Unknown current day/night uses a neutral icon and disclosure; daily forecasts remain daily summaries.
 - Request the next refresh at an approaching timed deadline or schedule boundary, without promising iOS will honor that time.
 - Preserve two-card Large layout, 44pt time columns, 6 schedules/2 deadlines/6 forecasts, Medium geometry, Loader v1.4 and local configuration.
 - Local offline suite: 425 cases pass; the same acceptance suite rejects the old v1.78 behavior in 78 conditions. These are conditions, not separate bug counts. Native text fitting and Timer behavior still require iPhone verification.
@@ -94,6 +102,7 @@ Run from the repository root:
 node scriptable-dashboard/tests/regression.cjs
 node scriptable-dashboard/tests/medium-deadline-title.cjs
 node scriptable-dashboard/tests/display-audit.cjs
+node scriptable-dashboard/tests/location-disclosure.cjs
 ```
 
 The tests use synthetic weather, location, Calendar and filesystem data, without contacting services or reading personal records. They cover both layouts, light/dark source warnings, calendar/date boundaries, loader recovery and render-completion checks. A JSON result is written to `scriptable-dashboard/tests/test-results.json` and is not committed.

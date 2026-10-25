@@ -32,3 +32,5 @@ jobs:
         run: node scriptable-dashboard/tests/medium-deadline-title.cjs
       - name: Check display audit repairs
         run: node scriptable-dashboard/tests/display-audit.cjs
+      - name: Check weather location disclosure and unknown-time dates
+        run: node scriptable-dashboard/tests/location-disclosure.cjs
