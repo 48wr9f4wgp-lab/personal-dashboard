@@ -34,3 +34,5 @@ jobs:
         run: node scriptable-dashboard/tests/display-audit.cjs
       - name: Check weather location disclosure and unknown-time dates
         run: node scriptable-dashboard/tests/location-disclosure.cjs
+      - name: Check weather retry and last-good data
+        run: node scriptable-dashboard/tests/weather-recovery.cjs

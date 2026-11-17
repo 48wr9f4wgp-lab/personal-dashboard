@@ -15,10 +15,19 @@ Remote main:
 
 ## Current candidate
 
-- Dashboard: `1.82-github`
+- Dashboard: `1.83-github`
 - Loader: `1.4`
 - Target layouts: Medium (calendar first) and Large (weather overview)
 - Preserve local `ORE_DASH_CONFIG` when updating the loader. Do not copy personal settings into this repository.
+
+### v1.83: bounded weather recovery without fabricated freshness
+- Weather requests use a 4-second native idle timeout plus a 4.5-second await bound when Timer is available. Retry at most once after 250ms for transient failures. A still-running request that hits the wall bound does not overlap with a retry. Timer-unavailable runs retain the native timeout; this is not an iOS execution-time guarantee.
+- HTTP 429 and non-transient 4xx responses are not retried immediately. Retry-After on a retryable HTTP response also suppresses the immediate retry. Safe diagnostics separate HTTP/status, rate limit, network, timeout, invalid JSON, provider error, invalid data and invalid/stale time; raw provider bodies, URLs and precise coordinates are not logged by the new [weather-fetch] line.
+- Only valid current weather with a complete six-day bundle seeds local last-good data. Storage is in FileManager.local().documentsDirectory()/ore-dashboard-weather/last-good-v1.json, separate from the Loader code cache and private settings. A verified temporary file is moved into place; write/move/read failures cannot break the live weather path. No iCloud or additional remote service is used.
+- Cache is an outage fallback, never an excuse to skip a live request. Source/model age AND saved age must be at most 90 minutes, provider-local dates must still match, and the requested rounded 0.01-degree coordinate cell, place name, and current/fallback mode must all match. Different locations, a changed fallback mode, midnight rollover, corrupt/unknown schema, future save time and stale payloads fail closed. The new code cannot recover historical weather until one successful new-version run has seeded the file.
+- Reused weather visibly says '天気 前回 HH:mm推定' and '前回降水'. Cache reads never rewrite source time or savedAt. Compact Medium preserves code/data warnings; if they occupy the usual timestamp area, its forecast area shows the previous-data timestamp instead of an unlabeled cached forecast.
+- Fresh network recovery removes the previous-data labels. A usable live partial payload is shown as partial, not mixed with a different old bundle, and does not overwrite a complete cache.
+- Calendar/expiry semantics, GPS behavior, row widths/heights, schedule/deadline counts, icon mappings, private configuration and Loader bytes are unchanged. Only weather handling and cached-weather labels/colors change. Offline tests do not establish native iPhone fitting, automatic widget refresh, storage sharing across native contexts or the cause of the reported outage.
 
 ### v1.82: location clarity and standalone unknown-time dates
 - Large forecast headings allocate explicit zero-padding columns to the city, fallback marker and rain probability. City text receives at least 80pt in the supported forecast widths; the optional '週間天気' caption yields before those fields. Full city text remains stored; unusually long names may still use native ellipsis.
@@ -103,6 +112,7 @@ node scriptable-dashboard/tests/regression.cjs
 node scriptable-dashboard/tests/medium-deadline-title.cjs
 node scriptable-dashboard/tests/display-audit.cjs
 node scriptable-dashboard/tests/location-disclosure.cjs
+node scriptable-dashboard/tests/weather-recovery.cjs
 ```
 
 The tests use synthetic weather, location, Calendar and filesystem data, without contacting services or reading personal records. They cover both layouts, light/dark source warnings, calendar/date boundaries, loader recovery and render-completion checks. A JSON result is written to `scriptable-dashboard/tests/test-results.json` and is not committed.
