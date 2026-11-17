@@ -5,9 +5,9 @@ process.env.TZ='Asia/Tokyo';
 const fs=require('node:fs'),path=require('node:path'),vm=require('node:vm');
 const assert=require('node:assert/strict'),crypto=require('node:crypto');
 const root=path.dirname(__dirname),source=fs.readFileSync(process.argv[2]||path.join(root,'main.js'),'utf8');
-// Intentional v1.82 Large location-disclosure baseline; Medium remains v1.81.
+// Intentional v1.83 cached-weather provenance labels; normal dimensions/agenda remain fixed.
 // Loader remains pinned to the original v1.4 bytes. Native fit is not hash-tested.
-const baseHash={large:'655df0bc627f2e6c548cc39cfc4a6e435f1dab477b1d08ce81376938aa5c38ba',medium:'0e8323aed5d66b949dece1c32938ac5610ca6c2461d3fff5a1b946534e117024',loader:'2806858b80e5333b740e2d5caea44c7bb8aa66791defb24f40fa2cb40d4d359a'};
+const baseHash={large:'d453b3582455f07ef5011588ebed106dc7ed647fc3d4b15f77b0d22e1d76e5a6',medium:'8a65a9c96577d7fbc6d82ab736d40c4c8333760c7fa1d95638cd789913358ccf',loader:'2806858b80e5333b740e2d5caea44c7bb8aa66791defb24f40fa2cb40d4d359a'};
 const sha=s=>crypto.createHash('sha256').update(s).digest('hex');
 const prefixEnd=source.indexOf('const fetchedAt=new Date(RUN_NOW);');
 assert.ok(prefixEnd>0,'real function prefix not found');
@@ -84,8 +84,8 @@ test('No new clock/status data is invented for a record without an explicit time
 test('Malformed session parser values fail closed',()=>{
   assert.ok(upcoming.compact);for(const value of [null,undefined,0,{},[]])assert.equal(upcoming.compact(value),null);
 });
-test('Large renderer matches the intentional v1.82 location-disclosure baseline',()=>assert.equal(sha(source.slice(source.indexOf('// LARGE'))),baseHash.large));
-test('Medium renderer matches v1.81 ongoing labels with unchanged geometry',()=>assert.equal(sha(source.slice(source.indexOf('// MEDIUM'),source.indexOf('// LARGE'))),baseHash.medium));
+test('Large renderer matches intentional v1.83 weather provenance labels',()=>assert.equal(sha(source.slice(source.indexOf('// LARGE'))),baseHash.large));
+test('Medium renderer matches intentional v1.83 cache disclosure with unchanged geometry',()=>assert.equal(sha(source.slice(source.indexOf('// MEDIUM'),source.indexOf('// LARGE'))),baseHash.medium));
 test('Loader is unchanged',()=>assert.equal(sha(fs.readFileSync(path.join(root,'loader.js'))),baseHash.loader));
 const failed=results.filter(r=>r.status==='FAIL');
 for(const result of results)console.log(result.status+' '+result.name+(result.error?'\n'+result.error:''));

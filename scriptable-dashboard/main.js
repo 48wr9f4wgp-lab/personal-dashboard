@@ -1,8 +1,8 @@
-// 俺専用ダッシュボード v1.82-github
+// 俺専用ダッシュボード v1.83-github
 // Remote main for Scriptable loader.
 // IMPORTANT: Script.complete() は loader 側で呼ぶ。
 
-const VERSION = "1.82-github";
+const VERSION = "1.83-github";
 
 const USER = globalThis.ORE_DASH_CONFIG || {};
 const RUN_NOW = new Date();
@@ -137,7 +137,8 @@ function weatherFailureText(weather){
 }
 function dailyRainLabel(weather){
   const rain=precipitationProbabilityOrNull(weather.rain);
-  return rain===null?"今日降水不明":"今日降水"+Math.round(rain)+"%";
+  const label=weather.fromCache?"前回降水":"今日降水";
+  return rain===null?label+"不明":label+Math.round(rain)+"%";
 }
 function scheduleFailureText(events,future){
   if(!events.ok&&!future.ok)return "予定を取得できません";
@@ -150,16 +151,21 @@ function renderReceipt(){
   // Older installed loaders can keep running this main without modification.
   return {dashboard:"ore-dashboard",version:VERSION,rendered:true};
 }
-async function getWeather(pos){
-  const missing={ok:false,partial:true,stale:false,timeUnverified:false,
+// v1.83: at most two requests; a separate, local, last-good weather cache.
+// Source time, location scope and daily validity are revalidated on every cache read.
+const WEATHER_REQUEST_SECONDS=4;
+const WEATHER_REQUEST_WALL_MS=4500;
+const WEATHER_CACHE_SCHEMA=1;
+const WEATHER_CACHE_MAX_BYTES=64000;
+function weatherUnavailable(reason="unavailable"){
+  return Object.assign({ok:false,partial:true,stale:false,timeUnverified:false,
     temp:null,code:-1,isDay:null,currentPrecip:null,currentRain:null,currentShowers:null,currentSnowfall:null,
-    max:null,min:null,rain:null,daily:[],localDate:isoDay(RUN_NOW),sourceTime:"",apiLat:null,apiLon:null};
+    max:null,min:null,rain:null,daily:[],localDate:isoDay(RUN_NOW),sourceTime:"",apiLat:null,apiLon:null},{errorReason:reason,fromCache:false});
+}
+function parseWeatherPayload(j,receivedAt=new Date()){
+  const missing=weatherUnavailable("invalid-data");
   try{
-    if(coordinateOrNull(pos.lat,-90,90)===null||coordinateOrNull(pos.lon,-180,180)===null)return missing;
-    const u="https://api.open-meteo.com/v1/forecast?latitude="+pos.lat+"&longitude="+pos.lon+"&current=temperature_2m,weather_code,is_day,precipitation,rain,showers,snowfall&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max&timezone=auto&forecast_days=7&cell_selection=nearest";
-    const r=new Request(u);r.timeoutInterval=10;const j=await r.loadJSON();
-    if(!j||j.error||!j.current)return missing;
-    const receivedAt=new Date();
+    if(!j||typeof j!=="object"||Array.isArray(j)||j.error||!j.current||typeof j.current!=="object"||Array.isArray(j.current))return missing;
     const rawOffset=numberOrNull(j.utc_offset_seconds);
     const offset=rawOffset!==null&&Number.isInteger(rawOffset)&&Math.abs(rawOffset)<=14*3600?rawOffset:null;
     const localDate=offset===null?isoDay(receivedAt):new Date(receivedAt.getTime()+offset*1000).toISOString().slice(0,10);
@@ -196,6 +202,168 @@ async function getWeather(pos){
       apiLat:coordinateOrNull(j.latitude,-90,90),apiLon:coordinateOrNull(j.longitude,-180,180)};
   }catch(_){return missing;}
 }
+function usableWeather(value){return !!value&&value.ok&&!value.stale&&!value.timeUnverified;}
+function weatherPayloadReason(value){
+  if(value.stale)return "stale";
+  if(value.timeUnverified)return "unverified-time";
+  return "invalid-data";
+}
+function weatherStatus(request){
+  try{const n=request.response&&request.response.statusCode;return Number.isInteger(n)&&n>=100&&n<=599?n:null;}catch(_){return null;}
+}
+function weatherHasRetryAfter(request){
+  try{return Object.keys(request.response&&request.response.headers||{}).some(key=>key.toLowerCase()==="retry-after");}catch(_){return false;}
+}
+function weatherHTTPFailure(request){
+  const status=weatherStatus(request);
+  if(status===null||(status>=200&&status<300))return null;
+  return {ok:false,reason:status===429?"rate-limit":"http",status,
+    retryable:(status===408||status>=500)&&!weatherHasRetryAfter(request)};
+}
+function weatherRequest(url){
+  // timeoutInterval is an idle timeout. Timer additionally bounds our await when available.
+  // A wall timeout does not cancel native I/O, so it does not start a concurrent retry.
+  return new Promise(resolve=>{
+    let request,timer=null,settled=false;
+    const finish=result=>{if(settled)return;settled=true;try{if(timer)timer.invalidate();}catch(_){}resolve(result);};
+    try{
+      request=new Request(url);request.timeoutInterval=WEATHER_REQUEST_SECONDS;
+      try{
+        if(typeof Timer!=="undefined"&&typeof Timer.schedule==="function")
+          timer=Timer.schedule(WEATHER_REQUEST_WALL_MS,false,()=>finish({ok:false,reason:"time-budget",status:null,retryable:false}));
+      }catch(_){} // Native request timeout still applies; GPS has its own policy.
+      Promise.resolve().then(()=>request.loadJSON()).then(data=>{
+        const http=weatherHTTPFailure(request);
+        finish(http||{ok:true,data,status:weatherStatus(request)});
+      },error=>{
+        const http=weatherHTTPFailure(request);if(http){finish(http);return;}
+        // Classify locally, but never log raw messages/URLs/provider bodies.
+        const message=String(error&&error.message||"");
+        const reason=/timed?\s*out|timeout|タイムアウト/i.test(message)?"timeout":
+          error&&error.name==="SyntaxError"||/json|unexpected\s+(?:token|end)/i.test(message)?"invalid-json":"network";
+        finish({ok:false,reason,status:weatherStatus(request),retryable:true});
+      });
+    }catch(_){finish({ok:false,reason:"request-unavailable",status:null,retryable:false});}
+  });
+}
+function weatherRetryPause(){
+  return new Promise(resolve=>{
+    try{
+      if(typeof Timer==="undefined"||typeof Timer.schedule!=="function"){resolve();return;}
+      let timer=Timer.schedule(250,false,()=>{try{timer.invalidate();}catch(_){}resolve();});
+    }catch(_){resolve();}
+  });
+}
+function weatherLocationKey(pos){
+  const lat=coordinateOrNull(pos&&pos.lat,-90,90),lon=coordinateOrNull(pos&&pos.lon,-180,180);
+  if(lat===null||lon===null)return null;
+  // Identical ~1km rounded-coordinate cell AND place label AND GPS/fallback mode.
+  // The key is stored only locally, never included in diagnostics or public files.
+  return [pos.ok?"current":"fallback",lat.toFixed(2),lon.toFixed(2),normalize(pos.city)].join("|");
+}
+function weatherCacheAccess(){
+  const fm=FileManager.local(),dir=fm.joinPath(fm.documentsDirectory(),"ore-dashboard-weather");
+  return {fm,dir,path:fm.joinPath(dir,"last-good-v1.json")};
+}
+function weatherCacheEligible(weather,now){
+  if(!usableWeather(weather)||weather.sourceLocalDate!==weather.localDate)return false;
+  const age=+now-+weather.validAt;
+  return Number.isFinite(age)&&age>=-WEATHER_FUTURE_TOLERANCE_MS&&age<=WEATHER_MAX_AGE_MS;
+}
+function readWeatherCache(pos,now=new Date()){
+  try{
+    const key=weatherLocationKey(pos);if(key===null)return {reason:"invalid-position"};
+    const {fm,path}=weatherCacheAccess();if(!fm.fileExists(path))return {reason:"missing"};
+    if(typeof fm.fileSize==="function"&&fm.fileSize(path)>WEATHER_CACHE_MAX_BYTES)return {reason:"invalid-cache"};
+    const text=fm.readString(path);
+    if(typeof text!=="string"||text.length>WEATHER_CACHE_MAX_BYTES)return {reason:"invalid-cache"};
+    const entry=JSON.parse(text);
+    if(!entry||entry.schema!==WEATHER_CACHE_SCHEMA||entry.provider!=="open-meteo-nearest-v1"||typeof entry.key!=="string")return {reason:"invalid-cache"};
+    if(entry.key!==key)return {reason:"location-mismatch"};
+    if(!Number.isFinite(entry.savedAt)||entry.savedAt>+now||+now-entry.savedAt>WEATHER_MAX_AGE_MS)return {reason:"expired"};
+    const weather=parseWeatherPayload(entry.payload,now);
+    if(!weatherCacheEligible(weather,now))return {reason:weather.stale?"expired":"invalid-cache"};
+    // Preserve the real fetch time. A cache read never extends savedAt or sourceTime.
+    weather.receivedAt=new Date(entry.savedAt);weather.fromCache=true;
+    return {weather,reason:"hit"};
+  }catch(_){return {reason:"read-failed"};}
+}
+function cacheWeatherPayload(data){
+  // Store only the exact provider fields consumed by the renderer, never arbitrary response extras.
+  const current={},daily={};
+  for(const key of ["time","temperature_2m","weather_code","is_day","precipitation","rain","showers","snowfall"])
+    current[key]=data.current[key];
+  for(const key of ["time","weather_code","temperature_2m_max","temperature_2m_min","precipitation_probability_max"])
+    daily[key]=Array.isArray(data.daily&&data.daily[key])?data.daily[key].slice(0,7):[];
+  return {utc_offset_seconds:data.utc_offset_seconds,latitude:data.latitude,longitude:data.longitude,current,daily};
+}
+function saveWeatherCache(pos,data,weather){
+  const now=new Date();
+  if(!weatherCacheEligible(weather,now)||weather.partial)return "not-eligible";
+  // Do not replace a complete last-good bundle with a partial six-day forecast.
+  const base=parseISODate(weather.localDate);
+  if(![0,1,2,3,4,5].every(n=>{
+    const day=weather.daily.find(d=>d.date===isoDay(addDays(base,n)));
+    return day&&[day.code,day.max,day.min,day.rain].every(value=>value!==null);
+  }))return "not-eligible";
+  let storage,temp;
+  try{
+    const key=weatherLocationKey(pos);if(key===null)return "not-eligible";
+    storage=weatherCacheAccess();const {fm,dir,path}=storage;
+    // A complete temporary file is required. Never fall back to overwriting last-good in place.
+    if(typeof fm.move!=="function"||typeof fm.remove!=="function")return "unavailable";
+    if(!fm.fileExists(dir))fm.createDirectory(dir,true);
+    const entry={schema:WEATHER_CACHE_SCHEMA,provider:"open-meteo-nearest-v1",key,savedAt:+now,payload:cacheWeatherPayload(data)};
+    const text=JSON.stringify(entry);if(text.length>WEATHER_CACHE_MAX_BYTES)return "too-large";
+    temp=fm.joinPath(dir,"pending-"+Date.now()+"-"+Math.random().toString(36).slice(2)+".json");
+    fm.writeString(temp,text);
+    if(fm.readString(temp)!==text)throw new Error("Unverified cache write");
+    fm.move(temp,path);temp=null;return "saved";
+  }catch(_){return "write-failed";}
+  finally{if(temp&&storage){try{if(storage.fm.fileExists(temp))storage.fm.remove(temp);}catch(_){}}}
+}
+function weatherFetchLog(result){
+  // All values are closed enums or numbers. No precise location, URL or provider error body.
+  const reasons=new Set(["none","recovered","invalid-position","invalid-data","stale","unverified-time","http","rate-limit","timeout","time-budget","network","invalid-json","request-unavailable","api-error"]);
+  const caches=new Set(["unused","missing","hit","expired","location-mismatch","invalid-position","invalid-cache","read-failed"]);
+  const saves=new Set(["not-attempted","saved","not-eligible","unavailable","too-large","write-failed"]);
+  console.log("[weather-fetch] source="+(["network","cache","none"].includes(result.source)?result.source:"none")+
+    " attempts="+(Number.isInteger(result.attempts)?result.attempts:0)+
+    " reason="+(reasons.has(result.reason)?result.reason:"invalid-data")+
+    " http="+(Number.isInteger(result.status)?result.status:"none")+
+    " cache="+(caches.has(result.cache)?result.cache:"unused")+
+    " save="+(saves.has(result.save)?result.save:"not-attempted"));
+}
+async function getWeather(pos){
+  if(weatherLocationKey(pos)===null){
+    weatherFetchLog({source:"none",attempts:0,reason:"invalid-position"});
+    return weatherUnavailable("invalid-position");
+  }
+  const url="https://api.open-meteo.com/v1/forecast?latitude="+pos.lat+"&longitude="+pos.lon+"&current=temperature_2m,weather_code,is_day,precipitation,rain,showers,snowfall&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max&timezone=auto&forecast_days=7&cell_selection=nearest";
+  let attempts=0,last={reason:"network",status:null},failedWeather=null;
+  for(let attempt=0;attempt<2;attempt++){
+    attempts++;
+    const response=await weatherRequest(url);
+    if(response.ok){
+      const weather=parseWeatherPayload(response.data);
+      if(usableWeather(weather)){
+        const save=saveWeatherCache(pos,response.data,weather);
+        weather.fromCache=false;
+        weatherFetchLog({source:"network",attempts,reason:attempt?"recovered":"none",status:response.status,cache:"unused",save});
+        return weather;
+      }
+      failedWeather=weather;
+      last={reason:response.data?.error?"api-error":weatherPayloadReason(weather),status:response.status,retryable:!response.data?.error};
+    }else last=response;
+    if(attempt!==0||!last.retryable)break;
+    await weatherRetryPause();
+  }
+  const cached=readWeatherCache(pos);
+  weatherFetchLog({source:cached.weather?"cache":"none",attempts,reason:last.reason,status:last.status,cache:cached.reason});
+  if(cached.weather){cached.weather.fetchFailure=last.reason;return cached.weather;}
+  return failedWeather||weatherUnavailable(last.reason);
+}
+
 
 function weatherInfo(code){
   if(code===0)return ["快晴","sun.max.fill"];
@@ -707,7 +875,7 @@ function mediumWeatherStamp(weather){
 
 function weatherAsOfLabel(weather){
   const m=/T(\d{2}:\d{2})/.exec(String(weather&&weather.sourceTime||""));
-  return m?m[1]+"推定":"";
+  return m?(weather.fromCache?"前回 ":"")+m[1]+"推定":"";
 }
 function forecastGrid(weather,now=RUN_NOW){
   const base=parseISODate(weather.localDate)||dayStart(now);
@@ -829,6 +997,8 @@ if(resolveFamily()==="medium"){
   const codeSourceWarning=runtime.codeSource==="lastGood"?"前回コード":runtime.codeSource==="network"?"":"取得元不明";
   const dataIssues=state.issues.filter(issue=>issue!=="前回コード");
   const dataLabel=dataIssues.length>1?"一部未取得":(dataIssues[0]||"");
+  // Compact warnings can occupy the usual timestamp line; keep cached provenance visible.
+  const cacheNoticeInForecast=M.compact&&W.fromCache&&!!(codeSourceWarning||dataLabel);
   const mediumDeadline=actionableDeadlines[0]||null;
   const footerNeeded=!!mediumDeadline||!deadlineData.ok;
   const scheduleWarning=scheduleFailureText(eventsData,upcomingData);
@@ -865,14 +1035,14 @@ if(resolveFamily()==="medium"){
     singleText(current,numberLabel(W.temp)+"°",Font.semiboldSystemFont(11),C.text);current.addSpacer(4);
     icon(current,weatherIcon,weatherTint(weatherDisplayCode,W.isDay),11);current.addSpacer(4);
     // Compact mode prioritizes the model timestamp over daily rain probability.
-    singleText(current,M.compact?mediumWeatherStamp(W):dailyRainLabel(W),Font.mediumSystemFont(M.compact?8:9),W.rain===null?C.orange:C.sub);
+    singleText(current,M.compact?mediumWeatherStamp(W):dailyRainLabel(W),Font.mediumSystemFont(M.compact?8:9),W.fromCache||W.rain===null?C.orange:C.sub);
   }else{
     singleText(current,weatherFailureText(W),Font.mediumSystemFont(10),C.orange);
   }
   current.addSpacer();header.addSpacer(8);
 
   const forecasts=header.addStack();forecasts.size=new Size(M.forecastWidth,M.header);forecasts.topAlignContent();
-  if(mediumForecastUsable){
+  if(mediumForecastUsable&&!cacheNoticeInForecast){
     mediumForecastDays.forEach((day,i)=>{
       const cell=forecasts.addStack();cell.layoutVertically();cell.size=new Size(46,M.header);
       // Stack text alignment requires spacers, identically on all three lines.
@@ -893,7 +1063,7 @@ if(resolveFamily()==="medium"){
     const forecastStatus=forecasts.addStack();forecastStatus.layoutVertically();
     forecastStatus.size=new Size(M.forecastWidth,M.header);
     forecastStatus.addSpacer();
-    const warning=forecastStatus.addText(mediumWeatherUsable?"予報一部未取得":weatherFailureText(W));
+    const warning=forecastStatus.addText(cacheNoticeInForecast?mediumWeatherStamp(W)+"\n再取得に失敗":mediumWeatherUsable?"予報一部未取得":weatherFailureText(W));
     warning.font=Font.mediumSystemFont(10);warning.textColor=C.orange;
     warning.lineLimit=2;warning.minimumScaleFactor=1;
     forecastStatus.addSpacer();
@@ -911,7 +1081,7 @@ if(resolveFamily()==="medium"){
     else if(!config.runsInWidget)singleText(head,"v"+VERSION.replace("-github",""),Font.mediumSystemFont(8),C.sub);
     head.addSpacer(4);
     if(mediumWeatherUsable){
-      singleText(head,mediumWeatherStamp(W),Font.mediumSystemFont(8),C.sub);
+      singleText(head,mediumWeatherStamp(W),Font.mediumSystemFont(8),W.fromCache?C.orange:C.sub);
     }else{
       singleText(head,"表示 ",Font.mediumSystemFont(8),C.sub);
       const age=head.addDate(fetchedAt);age.applyRelativeStyle();
@@ -1072,7 +1242,7 @@ function largeForecastHeading(parent,width){
   row.addSpacer(gap);
   const rain=largeTextCell(row,rainWidth,14);rain.addSpacer();
   const rainKnown=numberOrNull(W.rain)!==null&&W.rain>=0&&W.rain<=100;
-  singleText(rain,dailyRainLabel(W),Font.mediumSystemFont(9),rainKnown?C.sub:C.orange);
+  singleText(rain,dailyRainLabel(W),Font.mediumSystemFont(9),rainKnown&&!W.fromCache?C.sub:C.orange);
   return row;
 }
 const w=new ListWidget();w.setPadding(8,14,8,14);w.backgroundColor=C.bg;w.url=calendarURL();
@@ -1093,7 +1263,7 @@ if(!position.ok){
 }
 if(largeWeatherUsable){
   const asOfLine=fixedRow(identity,identityWidth,13),asOf=weatherAsOfLabel(W);
-  singleText(asOfLine,asOf?"天気 "+asOf+(W.isDay===null?"・昼夜不明":""):"天気 時刻不明",Font.mediumSystemFont(9),asOf?C.sub:C.orange);asOfLine.addSpacer();
+  singleText(asOfLine,asOf?"天気 "+asOf+(W.isDay===null?"・昼夜不明":""):"天気 時刻不明",Font.mediumSystemFont(9),asOf&&!W.fromCache?C.sub:C.orange);asOfLine.addSpacer();
 }
 header.addSpacer(headerGap);
 const weatherPane=header.addStack();weatherPane.layoutVertically();weatherPane.size=new Size(weatherWidth,L.header);
